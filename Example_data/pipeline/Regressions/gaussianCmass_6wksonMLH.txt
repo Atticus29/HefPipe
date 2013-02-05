@@ -1,0 +1,10 @@
+Start:  AIC=1110.62
+Cmass_6wks ~ MLH
+
+       Df Deviance    AIC
+- MLH   1  5471386 1108.7
+<none>     5466182 1110.6
+
+Step:  AIC=1108.69
+Cmass_6wks ~ 1
+

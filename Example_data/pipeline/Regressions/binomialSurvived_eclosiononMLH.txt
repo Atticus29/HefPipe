@@ -1,0 +1,6 @@
+Start:  AIC=204.79
+Survived_eclosion ~ MLH
+
+       Df Deviance    AIC
+<none>      200.79 204.79
+- MLH   1   211.52 213.52

@@ -1,0 +1,30 @@
+Starting... 
+Iteration: 1 
+Iteration: 11 
+Iteration: 21 
+Iteration: 31 
+Iteration: 41 
+Iteration: 51 
+Iteration: 61 
+Iteration: 71 
+Iteration: 81 
+Iteration: 91 
+Iteration: 101 
+Iteration: 111 
+Iteration: 121 
+Iteration: 131 
+Iteration: 141 
+Iteration: 151 
+Iteration: 161 
+Iteration: 171 
+Iteration: 181 
+Iteration: 191 
+Iteration: 201 
+Iteration: 211 
+Iteration: 221 
+Iteration: 231 
+Iteration: 241 
+Finished. 
+[1] 0.1671936
+     2.5%     97.5% 
+0.1102565 0.2257102 

@@ -1,0 +1,25 @@
+
+Call:
+glm(formula = as.formula(paste(paste(response, "~", sep = ""), 
+    paste(predictors, collapse = "+"), sep = "")), family = fam, 
+    data = no.na.data)
+
+Deviance Residuals: 
+    Min       1Q   Median       3Q      Max  
+-542.23  -132.68     8.33   172.62   665.00  
+
+Coefficients:
+            Estimate Std. Error t value Pr(>|t|)   
+(Intercept)    602.7      228.1   2.642  0.00997 **
+MLH           -141.2      521.5  -0.271  0.78731   
+---
+Signif. codes:  0 ‘***’ 0.001 ‘**’ 0.01 ‘*’ 0.05 ‘.’ 0.1 ‘ ’ 1 
+
+(Dispersion parameter for gaussian family taken to be 70989.37)
+
+    Null deviance: 5471386  on 78  degrees of freedom
+Residual deviance: 5466182  on 77  degrees of freedom
+AIC: 1110.6
+
+Number of Fisher Scoring iterations: 2
+

@@ -1,0 +1,10 @@
+Start:  AIC=-491.72
+Prop_Qn_Weight_Loss ~ MLH
+
+       Df Deviance     AIC
+- MLH   1   1.6563 -493.52
+<none>      1.6549 -491.72
+
+Step:  AIC=-493.52
+Prop_Qn_Weight_Loss ~ 1
+

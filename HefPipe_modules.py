@@ -1,4 +1,3 @@
-##Created by Mark Fisher (email: mark.aaron.fisher@gmail.com)
 import re
 import os
 import csv
@@ -500,70 +499,6 @@ def testDict(dictOfLists, rejected_samples_address):
 def special_match(strg, search=re.compile(r'[^0.]').search): #http://stackoverflow.com/questions/1323364/in-python-how-to-check-if-a-string-only-contains-certain-characters
         return not bool(search(strg))
 
-def allele_report_pipeline (allele_reports_address, keeplist_address, monolist_address, desktop, pipeline_directory, rejected_samples_address):
-    exceptions=readCsv_input(rejected_samples_address)
-    #note: you will have to run this more than once. The second time will be after you have dealt with all of the issues related to missing.txt
-    alleleList=readCsv_input(allele_reports_address)
-    present_cumulative=[]
-    keeplist=readCsv_input(keeplist_address)
-    #print "keeplist",keeplist
-    monolist=readCsv_input(monolist_address)
-    #print "monolist", monolist
-    renamed_files=[]
-
-
-    #go through all of the allele reports on the allelereports list and do the following things:    
-    for a in range(0, len(alleleList)): #len(alleleList)
-        #print "a", a
-        #open the file
-        file=desktop
-        file+=(alleleList[a][0])
-        print "file", file
-        data=readCsv_input(file)
-        
-        #get rid of the top rows with the unimportant information
-        #print "data before cleanup", data
-        cleaned=cleanup(data)
-        #print "data after cleanup", cleaned
-
-        #fill the top row with names corresponding to loci
-        filled=fill_header(cleaned)
-        #print "data after fill_header", filled
-
-        #print "The file",alleleList[a][0], "needs to have the following loci fixed:"
-        #remove loci that have three or more columns ----------------This is now also the spot/function to check for items on keeplist that are being removed
-        removed_bad=remove_bad_loci(filled, keeplist)
-        #print "after bad removed", removed_bad
-
-        #keeps track of every locus that has been processed
-        for x in range (0, len(removed_bad[0])): #this assumes that the locus names are in the first row, which they should be at this point
-            present_cumulative.append(removed_bad[0][x])
-        #print "present_cumulative", present_cumulative
-        #gets rid of loci still in the samples that we know apriori (from monolist) are monomorphic
-        rid=remove_nonscores(removed_bad, monolist)
-
-        #renames the ID with numbers instead of their long crazy names
-        rid_trans=transposed(rid)
-        #print "rid_trans", rid_trans
-        delimiter=raw_input("If your sample names have a number in the front of them separated by a delimiter, what is that delimiter? Otherwise, press enter.")
-        if len(delimiter) !=0:
-            #print "before renaming row", rid_trans[1]
-            rid_trans[1]=rename_row(rid_trans[1],delimiter)
-            #print "after renaming row", rid_trans[1]
-        rid_back=transposed(rid_trans)
-        
-        filename='edited_'
-        filename+=alleleList[a][0]
-        renamed_files.append([filename])
-        saveCsv(rid_back,filename, pipeline_directory)
-
-    #cross references the loci that have been scored with a list of loci that SHOULD have been scored and reports any on the keeplist that were missed (usually means some were scored as triploids, etc.)    
-    most_missingest(present_cumulative, keeplist, pipeline_directory)
-    #print renamed_files
-    saveCsv(renamed_files, 'edited_file_list', pipeline_directory)
-
-    #check that all of the samples that are present in one file are present in the others
-    unique_samples_in_edited_files(pipeline_directory+'edited_file_list', pipeline_directory, exceptions)
 
 def allele_report_pipeline_directory_version (allele_reports_address, keeplist_address, monolist_address, pipeline_directory, rejected_samples_address):
     exceptions=readCsv_input(rejected_samples_address)
@@ -616,25 +551,67 @@ def allele_report_pipeline_directory_version (allele_reports_address, keeplist_a
         #renames the ID with numbers instead of their long crazy names
         rid_trans=transposed(rid)
         #print "rid_trans", rid_trans
-        delimiter=raw_input("If your sample names have a number in the front of them separated by a delimiter, what is that delimiter? Otherwise, press enter.")
-        if len(delimiter) !=0:
+#        delimiter=raw_input("If your sample names have a number in the front of them separated by a delimiter, what is that delimiter? Otherwise, press enter.")
+#        if len(delimiter) !=0:
             #print "before renaming row", rid_trans[1]
-            rid_trans[1]=rename_row(rid_trans[1],delimiter)
-            #print "after renaming row", rid_trans[1]
+        rid_trans[1]=rename_row(rid_trans[1])
+        #print "after renaming row", rid_trans[1]
         rid_back=transposed(rid_trans)
+
+        rid_back=fill_non_star_missing_with_dups(rid_back)
         #print "rid_back", rid_back
         filename='edited_'
         filename+=a
         renamed_files.append([filename])
         saveCsv(rid_back,filename, pipeline_directory)
 
+
+    #print "present_cumulative", present_cumulative
+    #print "keeplist", keeplist
+
     #cross references the loci that have been scored with a list of loci that SHOULD have been scored and reports any on the keeplist that were missed (usually means some were scored as triploids, etc.)    
     most_missingest(present_cumulative, keeplist, pipeline_directory)
-    #print renamed_files
+    #print "renamed_files", renamed_files
     saveCsv(renamed_files, 'edited_file_list', pipeline_directory)
 
     #check that all of the samples that are present in one file are present in the others
     unique_samples_in_edited_files(pipeline_directory+'edited_file_list', pipeline_directory, exceptions)
+
+def fill_non_star_missing_with_dups(list_of_lists):
+    #first, get max row length
+    length_list=[len(x) for x in list_of_lists]
+    #print "whole list ", length_list
+    max_length=max(length_list)
+    #print "max is ", max_length
+    #print "list", list_of_lists
+
+    for row in list_of_lists:
+            #print "row ID", row[1]
+            if len(row)<max_length:
+                    #print "This happens! Row before ", row
+                    #print "value of row[len(row)] ", row[len(row)]
+                    row.append(row[len(row)])
+                    #print "row after ", row
+            tracker=0
+            for i, el in enumerate(row):
+                    #print "i", i
+                    if el=='':
+                            print "You have data in this file that are missing genotypes and were not designated as, '**' for sample ", row[1], ". Automatically converting to homozygote. If this is not what you want, please check your allele report and re-run the pipeline."
+                            #print "in element ", el
+                            ##fill it with the element before it
+                            #print "row before ", row
+                            row[i]=row[i-1]
+                            #print "revised", row
+                            #print "i is ", i
+                            
+                    tracker+=1
+            #print "tracker is ", tracker
+#            if tracker<max_length:
+#                    print "this row is smaller than the max row", row
+#                    ##add duplicate of the last entry
+#                    row.append(row[len(row)])
+                    
+    return list_of_lists
 
 
 def unique_samples_in_edited_files(edited_files_address, pipeline_directory, exceptions):
@@ -776,7 +753,36 @@ def most_missingest (cumulative, keeplist, pipeline_directory):
         saveCsv(missing, 'missing.csv', pipeline_directory)
 
 
-def rename_row (row, delimiter):#row must be a list of strings
+
+def rename_row (row):#row must be a list of strings
+        #print "old row", row
+        query=re.compile(r'^(\d+)')
+        query_blank=re.compile(r'^([B,b]lank)\.*')
+        temp=row[0]
+        entries_to_del=[]
+        for i,entry in enumerate(row):
+                try:
+                        row[i]=re.search(query,entry).group(1)
+                except:
+                        try:
+                                row[i]=re.search(query_blank, entry).group(1)
+                        except:
+                                if i!=0:
+                                        print entry, " Didn't contain a number at the beginning of the sample name or didn't start with 'Blank'. Excluding this sample..."
+                                        entries_to_del.append(i)
+        #print "entries_to_del ", entries_to_del
+        row[0]=temp
+        while len(entries_to_del)>0:
+                #print "removing row", entries_to_del[-1]
+                del row[entries_to_del[-1]]
+                del entries_to_del[-1]                        
+        #print "row after done", row        
+        return row
+
+
+
+def rename_row_old (row, delimiter):#row must be a list of strings
+        print "row in rename_row module", row
         for x in range(1, len(row)):
                 cut=row[x].find(delimiter)
                 if cut > 0:
@@ -910,6 +916,7 @@ def combine_allele_report_pipeline_dict(pipeline_directory, keeplist_address, re
         #print "before re-purging", samples
         #testDict(samples)
         samples=Purge_Polyploid_MisScores(samples)
+        #print "samples", samples
         DictOfLists_toTable(samples, pipeline_directory, rejected_samples_address)
         keys_as_numbers_sorted=GenePop_Output(samples, pipeline_directory, rejected_samples_address)
         return [list_of_sample_names, keys_as_numbers_sorted]
@@ -1141,13 +1148,13 @@ def convert_to_g2 (pipeline_directory, keeplist_address):
                         if (([data[y][0]] not in keeplist) and ([data[y][0]] not in keeplist_without_spaces) and (data[y][0] not in ('POP', 'Pop', 'pop', ['POP'], ['Pop'], ['pop'])) and (name_counter<x+1)): #the name_counter here tracks whether the potential population name occurs before the word 'POP' in this particular instance of finding a population name. In other words, it ensures that population_name.append() only happens once per loop. This avoids lines with genotypes or locus names being reported as population names
                                 population_names.append(data[y][0])
                                 name_counter+=1
-        print "These are what I have as your population names:", population_names
-        done=raw_input("Is that all of them? y/n")
-        while done != ('y' or 'yes'):
-            new_pop_name=raw_input("Please enter the next population name.")
-            population_names.append(new_pop_name)
-            done=raw_input("Is that all of them? y/n")
-        print "population_names", population_names
+#        print "These are what I have as your population names:", population_names
+#        done=raw_input("Is that all of them? y/n")
+#        while done != ('y' or 'yes'):
+#            new_pop_name=raw_input("Please enter the next population name.")
+#            population_names.append(new_pop_name)
+#            done=raw_input("Is that all of them? y/n")
+        print "Population Name:", population_names
 
 
         #now, start to split the genotype strings and convert them to 1 for het, 0 for homo, -99 for missing score
@@ -1232,6 +1239,34 @@ def convert_to_g2 (pipeline_directory, keeplist_address):
                     saveFile.write(data[y][0][0])
                     saveFile.write('\n')
         saveFile.close()
+
+        ##get rid of spaces at the end of the file
+        spacey=open(output_name,'r')
+        spacey_contents=spacey.readlines()
+        spacey.close()
+        t=spacey_contents[len(spacey_contents)-1]
+        t=t[:-1]
+        t=t[:-1] #I think there are two spaces right now
+        #print t
+        spacey_contents[len(spacey_contents)-1]=t
+        ##temp
+        non_space=spacey_contents
+        #non_space=spacey_contents[:-1]
+
+#        non_space=[]
+#        for line in spacey_contents:
+#                print "line", line
+#                line_copy=copy.deepcopy(line)
+#                line_copy.replace(" ","")
+#                if len (line_copy)<1:
+#                        print "this happens"
+#                        continue
+#                else:
+#                        non_space.append(line)
+        save2=open(output_name,'w')
+        for line in non_space:
+                save2.write(line)
+        save2.close()
         print "Your GenePop file has been converted to an RMES-ready file called, ",output_name
 
 def PypeRify(r_as_text_address): #gets a little buggy with pounded comments on the same lines as R code
@@ -1529,7 +1564,8 @@ def get_bifurcation(data, pipeline_directory, rejected_samples_address):
                                                         del data_copy[x]
                                                         
                                                 except:
-                                                        print "Hopefully the script has already deleted ", x
+                                                        #print "Hopefully the script has already deleted ", x
+                                                        pass
                                                 #print x
                                                 #print z
                                                 #print y
@@ -1688,6 +1724,29 @@ def DictOfLists_toTable_General(dictOfLists, pipeline_directory):
                                 #print "this happens at x", x, " and y", y
                         data[len(data)-1].append(dictOfLists[dictOfLists.keys()[x]][y][1])#just changed this from x+1 to x for indexing errors after generalizing. 6.24.2012
                         #data[len(data)-1].append(dictOfLists[dictOfLists.keys()[x]][y][2])#see lijne above
+        #saveCsv(data, 'final_output', pipeline_directory)
+        return data
+
+def DictOfLists_toTable_General_2alleles(dictOfLists, pipeline_directory):                
+        #address_of_rejected_samples=rejected_samples_address
+        data=[['ID']]
+        #populate the top row
+        #print "keys()", dictOfLists.keys()
+        for i in range (0, len(dictOfLists[dictOfLists.keys()[0]])):
+                data[0].append(dictOfLists[dictOfLists.keys()[0]][i][0])
+                data[0].append(dictOfLists[dictOfLists.keys()[0]][i][0])                
+        #go through all of the other rows
+        for x in range (0, len(dictOfLists)):
+                #print "x", x
+                data.append([])
+                data[len(data)-1].append(dictOfLists.keys()[x])# make sure these samples match their genotypes
+                for y in range(0,len(dictOfLists[dictOfLists.keys()[0]])):
+                        #print "y", y
+                        #if (len(dictOfLists[dictOfLists.keys()[x]][y])==3):
+                                #print "this happens at x", x, " and y", y
+                        data[len(data)-1].append(dictOfLists[dictOfLists.keys()[x]][y][1])#just changed this from x+1 to x for indexing errors after generalizing. 6.24.2012
+                        #data[len(data)-1].append(dictOfLists[dictOfLists.keys()[x]][y][1])#just changed this from x+1 to x for indexing errors after generalizing. 6.24.2012
+                        data[len(data)-1].append(dictOfLists[dictOfLists.keys()[x]][y][2])#see lijne above
         #saveCsv(data, 'final_output', pipeline_directory)
         return data
 
@@ -2006,6 +2065,7 @@ def replace_internal_space(test_string):
         return test_string
 
 def run_model_comparison(csv_address, keeplist_address, pipeline_directory):
+        #exceptions=readCsv_input(rejected_samples_address)
         try:
                 os.mkdir(pipeline_directory+'Single_Locus_Effects_Test')
         except:
@@ -2029,6 +2089,10 @@ def run_model_comparison(csv_address, keeplist_address, pipeline_directory):
         master_file=readCsv_input(csv_address)
         master_file=remove_spaces_from_all_entries(master_file)
         #master_file=remove_spaces_from_header(master_file)
+        #print "master_file", master_file
+#        temp_header_1=master_file[0]
+#        master_file=[x for x in master_file[1:] if x[0] not in exceptions]
+#        master_file.insert(0,temp_header_1)
         #print "master_file", master_file
         master_trans=transposed(copy.deepcopy(master_file))
         #print "master_trans", master_trans
@@ -2064,28 +2128,41 @@ def run_model_comparison(csv_address, keeplist_address, pipeline_directory):
         #print "ready_for_comparison", ready_for_comparison
         saveCsv(ready_for_comparison, 'fitness_and_loci_combined.csv',pipeline_directory+'Single_Locus_Effects_Test/')
 
-
+        
         #the R function:
         funct="""
         make_and_compare_models <- function(fitness_trait_name, data_frame_name, vector_for_multiple_regression, predictor_for_single_regression, fam){
-	#print(data_frame_name)
-	#str(data_frame_name)
 	sink(file=paste(paste("Multiple_regression_vs_single_regression_",fitness_trait_name, sep=''), ".txt", sep=''))
-	print (fitness_trait_name)
-	#this is the multiple regression and will be very specific
-	fit1<-glm(data=data_frame_name, formula=as.formula(paste(fitness_trait_name,"~", paste(vector_for_multiple_regression, collapse="+"))), family=fam)
+	fit1<-glm(formula=as.formula(paste(fitness_trait_name,"~", paste(vector_for_multiple_regression, sep="+"))), family=fam, data=data_frame_name)
+	#print ('length of vector of predictors')
+	additional.degrees.of.freedom.fit1<-length(vector_for_multiple_regression)-1 ##the paste above prevents R from recognizing all of the vectors as separate predictors. This -1 gives you the difference in parameter number between the two models.
 	print ("summary fit 1")
 	print(summary(fit1))
+	dev1<-(fit1$deviance)
+	print ('residual deviance of fit1')
+	print (dev1)
+	print ("Uncorrected degress of freedom:")
+	print(fit1$df.residual)
+	print ("Corrected degrees of freedom:")
+	df1=fit1$df.residual-additional.degrees.of.freedom.fit1
+	fit1$df.residual=df1
+	print(fit1$df.residual)
 	fit2<- glm(data=data_frame_name, formula=as.formula(paste(fitness_trait_name,"~",predictor_for_single_regression)), family=fam)
-
 	print("summary fit 2")
 	print(summary(fit2))
-	print("model comparison stats:")
-	mod_test<-anova(fit2,fit1)
-	print(anova(fit2,fit1))
-	print ("significance:")
-        print (1-pchisq( abs(mod_test$Deviance[2]),abs(mod_test$Df[2])))
-	sink()
+	print ("deviance of fit2")
+	dev2<-(fit2$deviance)
+	print(dev2)
+	df2=fit2$df.residual
+	print ('df2')
+	print (df2)
+        F.ratio<-((dev2-dev1)/(df2-df1))/(dev1/df1)
+        print('F.ratio')
+        print(F.ratio)
+        new.p<-1-pf(F.ratio,abs(df1-df2),max(df2,df1))
+        print('P-value of F ratio test')
+        print(new.p)
+ 	sink()
 	
 	
 	tiff(filename=paste(paste("Multiple_regression_",fitness_trait_name, sep=''), ".tiff", sep=''))
@@ -2143,6 +2220,7 @@ def run_model_comparison(csv_address, keeplist_address, pipeline_directory):
         r.the_loci=keeplist_as_list_of_strings
         #print r("print(data)")
         for trait in trait_list:
+                #print "made it here"
                 #print "trait", trait
                 #print type(trait)
                 r.current_trait=trait
@@ -2272,7 +2350,7 @@ def all_correlations_and_pvalues(MLH_output_csv, save_directory, rejected_sample
         print r("just_nums<-sapply(data_for_cor,is.numeric)")
         print r("just_nums_data<-data_for_cor[,just_nums]")
         #print r("print ('just_nums_data')")
-        print r("print (just_nums_data)")
+        #print r("print (just_nums_data)")
         print r("print (str(just_nums_data))")
         print r("z<-cor.test.p(just_nums_data)")
         print r("w<-cor.prob(just_nums_data)")
@@ -2307,6 +2385,24 @@ def all_correlations_and_pvalues(MLH_output_csv, save_directory, rejected_sample
         print r("z$spearman_p_adjusted<-y[,5]")
         print r("write.csv(z,file=paste(save,'all_correlations.csv',sep=''))") #this could be a problem line
                 
+def fdr_cutoffs(pipeline_directory):
+        r=R(use_numpy=True)
+        funct="""
+        fdr<-function(alpha,p.vector){
+        k<-length(p.vector)
+        pval.sort<-sort(p.vector)
+        rank<-1:k
+        fdr.rank<-alpha*rank/k
+        pval.test<-(pval.sort<fdr.rank)
+        cutoff<-max(pval.sort[pval.test])
+        print (cutoff)
+        return(cutoff)
+        }
+        """
+        print (r(funct))
+        cmds=["data<-read.csv('/Users/mf/Desktop/pipeline/Correlations/all_correlations.csv')", "sink(file='/Users/mf/Desktop/pipeline/Correlations/fdr_cutoffs.txt')","print('fdr(0.05,na.omit(data$pearson_p)):')", "fdr(0.05,na.omit(data$pearson_p))", "print('fdr(0.05,na.omit(data$spearman_p)):')", "fdr(0.05,na.omit(data$spearman_p))", "sink()"]
+        print (r(cmds))
+
 def generate_allele_frequency_spreadsheet(genePop_file_address, pipeline_directory):
     linelist=open(genePop_file_address).readlines()
     #print type(linelist)
@@ -2316,25 +2412,17 @@ def generate_allele_frequency_spreadsheet(genePop_file_address, pipeline_directo
     locus_names=[]
     parsing = False
     new=[]
-    regex_query=re.compile('Locus:\s\w+')
+    regex_query=re.compile('Locus:\s(.*)')
 
     ##get a list of locus names##
     for line in linelist:
             if "Locus" in line:
                     #print "this line",line
-                    locus_names.append(re.search(regex_query,line).group())
+                    locus_names.append(re.search(regex_query,line).group(1))
     #print "after regex", locus_names
-    #for line in locus_names:
-#            line.split('Locus:')
-#    for line in locus_names:
- #           new.append(line.replace('\n',''))
-#    locus_names=[]
-#    for line in new:
-#            locus_names.append(line.replace('Pop: 652',''))
-#    new=[]
-    for line in locus_names:
-            new.append(line.replace('Locus:',''))
-    locus_names=remove_spaces_from_list_recursive(new)
+##    for line in locus_names:
+##            new.append(line.replace('Locus:',''))
+##    locus_names=remove_spaces_from_list_recursive(new)
     #print locus_names
     
     ##isolate the lines between Fis and Tot and store them in good_data##
@@ -2443,7 +2531,7 @@ def generate_obs_exp_het_homo_spreadsheet(genePop_file_address, pipeline_directo
     locus_names=[]
     parsing = False
     new=[]
-    regex_query=re.compile('Locus:\s\w+')
+    regex_query=re.compile('Locus:\s\w+-*\w*')
 
     ##get a list of locus names##
     for line in linelist:
@@ -2495,9 +2583,13 @@ def generate_obs_exp_het_homo_spreadsheet(genePop_file_address, pipeline_directo
     
     for locus in locus_names:
             #print "locus", locus
+            #print "float(good_data_copy[3][1])", float(good_data_copy[3][1])
+            #print "float(good_data_copy[1][1])", float(good_data_copy[1][1])
             H_obs=float(good_data_copy[3][1])/(float(good_data_copy[1][1])+float(good_data_copy[3][1]))
             #print "H_obs", H_obs
             locus.append(H_obs)
+            #print "float(good_data_copy[2][1])", float(good_data_copy[2][1])
+            #print "float(good_data_copy[0][1])", float(good_data_copy[0][1])
             H_exp=float(good_data_copy[2][1])/(float(good_data_copy[2][1])+float(good_data_copy[0][1]))
             #print "H_exp",H_exp
             locus.append(H_exp)
@@ -2508,7 +2600,7 @@ def generate_obs_exp_het_homo_spreadsheet(genePop_file_address, pipeline_directo
             #print len(good_data_copy)
     #print "new locus_names", locus_names
     locus_names.insert(0,['Locus','H_obs','H_exp'])
-    #print locus_names
+    #print "locus_names", locus_names
     saveCsv(locus_names,'H_obs_and_H_exp.csv',pipeline_directory)
 
 def process_all_fullModel_files_in_directory(directory_address):
@@ -3003,7 +3095,7 @@ def homemade_correlation_matrix_pearson(pipeline_directory):
         print "pearson entered"
         data=readCsv_input(pipeline_directory+'Correlations/all_correlations.csv')
         trans=transposed(data)
-        culled=[x for x in trans if x[0] in ['i', 'j', 'pearson_p', 'pearson_corr']]
+        culled=[x for x in trans if x[0] in ['i', 'j', 'pearson_p', 'pearson_corr'] and x[0] not in ['pearson_p_adjusted']]
         traits=uniques([x for x in culled[0] if x not in ['i', 'ID']])
         #doesn't capture the one trait that's only in the j column, in our case usually 'MLH'
         more_traits=uniques([x for x in culled[1] if x not in ['j','ID']])
@@ -3050,7 +3142,7 @@ def homemade_correlation_matrix_spearman(pipeline_directory):
         print "spearman entered"
         data=readCsv_input(pipeline_directory+'Correlations/all_correlations.csv')
         trans=transposed(data)
-        culled=[x for x in trans if x[0] in ['i', 'j', 'spearman_p', 'spearman_corr']]
+        culled=[x for x in trans if x[0] in ['i', 'j', 'spearman_p', 'spearman_corr'] and x[0] not in ['spearman_p_adjusted']]
         traits=uniques([x for x in culled[0] if x not in ['i', 'ID']])
         #doesn't capture the one trait that's only in the j column, in our case usually 'MLH'
         more_traits=uniques([x for x in culled[1] if x not in ['j','ID']])
@@ -3106,3 +3198,15 @@ def num_samples_per_locus (pipeline_directory):
                 final.append([row[0],count])
         saveCsv(final, 'number_of_samples_per_locus.csv',pipeline_directory)
         #print "final", final
+
+def check_that_keeplist_and_monolist_are_mutually_exclusive(keeplist_address, monolist_address):
+        k=readCsv_input(keeplist_address)
+        m=readCsv_input(monolist_address)
+        problem_loci=[]
+        for row in k:
+                if row in m:
+                        problem_loci.append(row[0])
+        if len(problem_loci)>0:
+                        print "The following loci are in keeplist AND in monolist. Please resolve this situation and re-run the pipeline:"
+                        print problem_loci
+                        stophack=raw_input(" ")

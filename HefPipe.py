@@ -26,6 +26,7 @@ if answer in ['y', 'Y', 'yes', 'Yes']:
 else:
         print "Please do this and run again"
 #clean up the allele reports to make ready for the combine module below
+HefPipe_modules.check_that_keeplist_and_monolist_are_mutually_exclusive(keeplist_address, monolist_address)
 HefPipe_modules.allele_report_pipeline_directory_version(allele_reports_address, keeplist_address, monolist_address, pipeline_directory, rejected_samples_address)
 
 answer=raw_input("Are you ready to move on? In other words, I'm giving you a chance to fix missing values, etc., if you need it. y/n")
@@ -100,6 +101,7 @@ if answer in ['y','Y','yes', 'Yes']:
         HefPipe_modules.homemade_correlation_matrix_spearman_adjusted(pipeline_directory)
         HefPipe_modules.homemade_correlation_matrix_pearson(pipeline_directory)
         HefPipe_modules.homemade_correlation_matrix_spearman(pipeline_directory)
+        HefPipe_modules.fdr_cutoffs(pipeline_directory)
         
         #HefPipe_modules.spearman_corr_chart_padjust(pipeline_directory, address_of_acceptor_file)
         #HefPipe_modules.pearson_corr_chart_padjust(pipeline_directory, address_of_acceptor_file)
@@ -158,16 +160,17 @@ if answer in ['y','Y','yes', 'Yes']:
         answer=raw_input("Do you want to convert your fullModel.txt files from the regressions you ran into csv files?")
         if answer in ['yes','y','Y','Yes']:
                 HefPipe_modules.process_all_fullModel_files_in_directory(pipeline_directory+'Regressions/')
-                data_sub=raw_input("Do you want to convert your fullModel.txt files in the Data Subsets directory into csv files?")
-                if data_sub in ['yes','y','Y','Yes']:
-                        HefPipe_modules.process_all_fullModel_files_in_directory(pipeline_directory+'/Data_subsets/')
-                user_made=raw_input("Do you want to convert your fullModel.txt files generated from the user-entered regression spreadsheet into csv files?")
-                while user_made in ['yes','y','Y','Yes']:
-                        HefPipe_modules.process_all_fullModel_files_in_directory(raw_input("What's the path to the directory of fullModel.txt files you want to convert"))
-                        user_made=raw_input("Continue with user-entered regression spreadsheets (if you had more than one)?")                        
+        data_sub=raw_input("Do you want to convert your fullModel.txt files in the Data Subsets directory into csv files?")
+        while data_sub in ['yes','y','Y','Yes']:
+                HefPipe_modules.process_all_fullModel_files_in_directory(raw_input("What's the path to the directory of fullModel.txt files you want to convert"))
+                data_sub=raw_input("Continue with another data subset?")
+        user_made=raw_input("Do you want to convert your fullModel.txt files generated from the user-entered regression spreadsheet into csv files?")
+        while user_made in ['yes','y','Y','Yes']:
+                HefPipe_modules.process_all_fullModel_files_in_directory(raw_input("What's the path to the directory of fullModel.txt files you want to convert"))
+                user_made=raw_input("Continue with user-entered regression spreadsheets (if you had more than one)?")                        
 
         #then, do HFC analyses on all panel-size bifurcations
         print "Congratulations! You are done! You may want to re-run the analysis including or excluded different loci or individuals based on this first run, though!"
 
         ##exclude this from the actual HefPipe pub-ready script:
-        import supplement
+        #import supplement

@@ -1,0 +1,64 @@
+[1] "summary fit 1"
+
+Call:
+glm(formula = as.formula(paste(fitness_trait_name, "~", paste(vector_for_multiple_regression, 
+    sep = "+"))), family = fam, data = data_frame_name)
+
+Deviance Residuals: 
+    Min       1Q   Median       3Q      Max  
+-2.0912   0.4881   0.4881   0.4881   0.6331  
+
+Coefficients:
+            Estimate Std. Error z value Pr(>|z|)    
+(Intercept)   2.0674     0.2078   9.950   <2e-16 ***
+Aat2         -0.5621     0.4368  -1.287    0.198    
+---
+Signif. codes:  0 ‘***’ 0.001 ‘**’ 0.01 ‘*’ 0.05 ‘.’ 0.1 ‘ ’ 1 
+
+(Dispersion parameter for binomial family taken to be 1)
+
+    Null deviance: 211.52  on 281  degrees of freedom
+Residual deviance: 209.98  on 280  degrees of freedom
+AIC: 213.98
+
+Number of Fisher Scoring iterations: 4
+
+[1] "residual deviance of fit1"
+[1] 209.9775
+[1] "Uncorrected degress of freedom:"
+[1] 280
+[1] "Corrected degrees of freedom:"
+[1] 177
+[1] "summary fit 2"
+
+Call:
+glm(formula = as.formula(paste(fitness_trait_name, "~", predictor_for_single_regression)), 
+    family = fam, data = data_frame_name)
+
+Deviance Residuals: 
+    Min       1Q   Median       3Q      Max  
+-2.4654   0.3417   0.4587   0.5527   0.9150  
+
+Coefficients:
+            Estimate Std. Error z value Pr(>|z|)    
+(Intercept)    7.147      1.740   4.108    4e-05 ***
+MLH          -11.363      3.693  -3.077  0.00209 ** 
+---
+Signif. codes:  0 ‘***’ 0.001 ‘**’ 0.01 ‘*’ 0.05 ‘.’ 0.1 ‘ ’ 1 
+
+(Dispersion parameter for binomial family taken to be 1)
+
+    Null deviance: 211.52  on 281  degrees of freedom
+Residual deviance: 200.79  on 280  degrees of freedom
+AIC: 204.79
+
+Number of Fisher Scoring iterations: 5
+
+[1] "deviance of fit2"
+[1] 200.7872
+[1] "df2"
+[1] 280
+[1] "F.ratio"
+[1] -0.07521345
+[1] "P-value of F ratio test"
+[1] 1

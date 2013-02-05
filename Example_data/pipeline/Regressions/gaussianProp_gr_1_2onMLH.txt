@@ -1,0 +1,6 @@
+Start:  AIC=389.67
+Prop_gr_1_2 ~ MLH
+
+       Df Deviance    AIC
+<none>      594.79 389.67
+- MLH   1   620.54 391.02
