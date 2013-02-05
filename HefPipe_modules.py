@@ -2131,48 +2131,27 @@ def run_model_comparison(csv_address, keeplist_address, pipeline_directory):
         
         #the R function:
         funct="""
-        make_and_compare_models <- function(fitness_trait_name, data_frame_name, vector_for_multiple_regression, predictor_for_single_regression, fam){
-	sink(file=paste(paste("Multiple_regression_vs_single_regression_",fitness_trait_name, sep=''), ".txt", sep=''))
-	fit1<-glm(formula=as.formula(paste(fitness_trait_name,"~", paste(vector_for_multiple_regression, sep="+"))), family=fam, data=data_frame_name)
-	#print ('length of vector of predictors')
-	additional.degrees.of.freedom.fit1<-length(vector_for_multiple_regression)-1 ##the paste above prevents R from recognizing all of the vectors as separate predictors. This -1 gives you the difference in parameter number between the two models.
-	print ("summary fit 1")
-	print(summary(fit1))
-	dev1<-(fit1$deviance)
-	print ('residual deviance of fit1')
-	print (dev1)
-	print ("Uncorrected degress of freedom:")
-	print(fit1$df.residual)
-	print ("Corrected degrees of freedom:")
-	df1=fit1$df.residual-additional.degrees.of.freedom.fit1
-	fit1$df.residual=df1
-	print(fit1$df.residual)
-	fit2<- glm(data=data_frame_name, formula=as.formula(paste(fitness_trait_name,"~",predictor_for_single_regression)), family=fam)
-	print("summary fit 2")
-	print(summary(fit2))
-	print ("deviance of fit2")
-	dev2<-(fit2$deviance)
-	print(dev2)
-	df2=fit2$df.residual
-	print ('df2')
-	print (df2)
-        F.ratio<-((dev2-dev1)/(df2-df1))/(dev1/df1)
-        print('F.ratio')
-        print(F.ratio)
-        new.p<-1-pf(F.ratio,abs(df1-df2),max(df2,df1))
-        print('P-value of F ratio test')
-        print(new.p)
- 	sink()
-	
-	
-	tiff(filename=paste(paste("Multiple_regression_",fitness_trait_name, sep=''), ".tiff", sep=''))
+        comparemodels <- function(data, response, terms1, terms2, family = 'gaussian', ...) {
+        if (family=='gaussian'){
+                test='F'
+        } else{
+                test='Chisq'
+        }
+	sink(file=paste(paste("Multiple_regression_vs_single_regression_",response, sep=''), ".txt", sep=''))
+        f1 <- reformulate(terms1, response)
+        f2 <- reformulate(terms2, response)
+        m1 <- glm(f1, data = data, family = family)
+        m2 <- glm(f2, data = data, family = family)
+        compare <- anova(m1, m2, test = test)
+        print(compare)
+	sink()
+	tiff(filename=paste(paste("Multiple_regression_",response, sep=''), ".tiff", sep=''))
 	layout(matrix(c(1,2,3,4),2,2))
-	plot(fit1)
+	plot(m1)
 	dev.off()
-	
-	tiff(filename=paste(paste("Single_regression_",fitness_trait_name, sep=''), ".tiff", sep=''))
+	tiff(filename=paste(paste("Single_regression_",response, sep=''), ".tiff", sep=''))
 	layout(matrix(c(1,2,3,4),2,2))
-	plot(fit2)
+	plot(m2)
 	dev.off()	
         }
         """
@@ -2235,7 +2214,7 @@ def run_model_comparison(csv_address, keeplist_address, pipeline_directory):
                 #print r("print(data)")
                 #print r("print(current_trait)")
                 #print r("print(data[current_trait])")
-                print (r('make_and_compare_models(current_trait, data[!is.na(data[current_trait]),], the_loci, mlh_value, fam)'))
+                print (r('comparemodels(data[!is.na(data[current_trait]),],current_trait, the_loci, mlh_value, fam)'))
                                               
 
 def score_NAs(the_list): #where the_list is a list such that the first element is a locus name and the other elements are the heterozygosity status of each sample at that locus. This module fills the NAs with the average heterozygosity of those scored
