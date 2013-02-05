@@ -2136,6 +2136,7 @@ def run_model_comparison(csv_address, keeplist_address, pipeline_directory):
                 test='F'
         } else{
                 test='Chisq'
+                #I'm actually not sure what sort of test (LRT, Rao, etc.) is appropriate in each case.This if/else chain can easily be expanded, though
         }
 	sink(file=paste(paste("Multiple_regression_vs_single_regression_",response, sep=''), ".txt", sep=''))
         f1 <- reformulate(terms1, response)
