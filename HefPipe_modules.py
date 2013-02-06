@@ -5,6 +5,7 @@ import pickle
 import copy
 import math
 import itertools
+import collections
 from pyper import *
 #os.chdir("/Users/markfisher/Desktop")
 
@@ -1631,7 +1632,8 @@ def perform_MAM(data, pipeline_directory, rejected_samples_address):#assumes tha
         while new_value!='done' and new_value!='Done':
                 #print "new_value", new_value, "type", type(new_value)
                 new_value=raw_input()
-                if (new_value not in data[0] and new_value not in ['done','Done']):
+                new_value_split=new_value.split('*')
+                if (not set(new_value_split).issubset(data[0]) and new_value not in ['done','Done']):
                         print "You have entered a trait that is not found in the trait-containing spreadsheet. Please re-enter, being mindful of spaces and typos."
                 else:
                         predictor_variables.append(new_value) # changed from traits_and_values.append(split_new_value_remove_spaces)
@@ -1639,7 +1641,10 @@ def perform_MAM(data, pipeline_directory, rejected_samples_address):#assumes tha
 
         #remove the 'done' from predictor_varaibles
         predictor_variables=predictor_variables[0:len(predictor_variables)-1]
+        predictor_variables_reduced=[x.split('*') for x in predictor_variables]
+        predictor_variables_reduced=list(recursive_list_of_lists_to_list_of_strings(predictor_variables_reduced))
         print"predictor_variables", predictor_variables
+        print "predictor_variables_reduced", predictor_variables_reduced
 
 
         
@@ -1650,6 +1655,7 @@ def perform_MAM(data, pipeline_directory, rejected_samples_address):#assumes tha
         r.pipeline_dir=pipeline_directory
         r.response=response_variable
         r.predictors=predictor_variables
+        r.predictors_reduced=predictor_variables_reduced
         r.predictor_filename=predictors_as_string
         r.fam=family
         print r("setwd(paste(pipeline_dir,'Regressions/', sep=''))")
@@ -1663,7 +1669,8 @@ def perform_MAM(data, pipeline_directory, rejected_samples_address):#assumes tha
         #print r("print(rejected)")
         print r("data<-subset(data, !(ID %in% rejected[,1]))") 
         #print r("print(data[c(predictors, response)])")
-        print r("no.na.data<-na.omit(data[c(predictors,response)])")
+        print r("print(predictors_reduced)")
+        print r("no.na.data<-na.omit(data[c(predictors_reduced,response)])")
         #print r("str(data)")
         print r("model <- glm(formula=as.formula(paste(paste(response,'~', sep=''),paste(predictors,collapse='+'), sep='')),family=fam, no.na.data)")
         CMDs1=["sink(file=paste(paste(pipeline_dir,'Regressions/', sep=''),paste(paste(paste(paste(fam,response,sep=''), 'on', sep=''), predictor_filename, sep=''),'_fullModel.txt', sep='')))", "print(summary(model))", "sink()"]
@@ -1672,6 +1679,20 @@ def perform_MAM(data, pipeline_directory, rejected_samples_address):#assumes tha
         print r(CMDs1)
         print r(CMDs2)
         print r(CMDs3)
+
+#def quick_fix_list_of_lists_to_list_of_strings(l):
+#        flat=[]
+#        for val in l:
+#                flat+=val
+#        return flat
+
+def recursive_list_of_lists_to_list_of_strings(l):
+    for el in l:
+        if isinstance(el, collections.Iterable) and not isinstance(el, basestring):
+            for sub in recursive_list_of_lists_to_list_of_strings(el):
+                yield sub
+        else:
+            yield el
 
 def list_as_string(list_of_strings):
         final_string=''
@@ -2177,6 +2198,8 @@ def run_model_comparison(csv_address, keeplist_address, pipeline_directory):
         while new_value!='done' and new_value!='Done':
                 #print "new_value", new_value, "type", type(new_value)
                 new_value=raw_input()
+                #new_value_split=new_value.split('*')
+                #print "new_value_split", new_value_split
                 if (new_value not in just_fitness_names and new_value not in ['done','Done']):
                         print "You have entered a trait that is not found in the trait-containing spreadsheet. Please re-enter, being mindful of spaces and typos."
                 else:
@@ -2584,6 +2607,7 @@ def generate_obs_exp_het_homo_spreadsheet(genePop_file_address, pipeline_directo
     saveCsv(locus_names,'H_obs_and_H_exp.csv',pipeline_directory)
 
 def process_all_fullModel_files_in_directory(directory_address):
+        #print "directory_address at entry of process_all_fullModel_files_in_directory", directory_address
         dir_list=os.listdir(directory_address)
         #print "before", dir_list
         for i, f in enumerate(dir_list):
@@ -2593,7 +2617,7 @@ def process_all_fullModel_files_in_directory(directory_address):
         #print type(dir_list)
         #print len(dir_list)
         fullModels=[x for x in dir_list if "fullModel.txt" in x]
-        #print fullModels
+        #print "fullModels",fullModels
         try:
                 os.mkdir(directory_address+'processed_model_output/')
         except:
@@ -2670,7 +2694,7 @@ def process_single_fullModel_file(file_address):
 
 def title_from_address(string_of_address):
         #print "string_of_address", string_of_address
-        query=re.compile(r'/(\w*)\.txt')
+        query=re.compile(r'.*/(.*)\.txt')
         search1=re.search(query,string_of_address)
         return search1.group(1)
 
