@@ -1,0 +1,10 @@
+Start:  AIC=70.22
+Survived_e_6wks ~ MLH
+
+       Df Deviance    AIC
+- MLH   1   67.355 69.355
+<none>      66.218 70.218
+
+Step:  AIC=69.35
+Survived_e_6wks ~ 1
+

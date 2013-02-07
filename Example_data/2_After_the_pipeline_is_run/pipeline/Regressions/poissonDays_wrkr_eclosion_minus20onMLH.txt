@@ -1,0 +1,6 @@
+Start:  AIC=771
+Days_wrkr_eclosion_minus20 ~ MLH
+
+       Df Deviance    AIC
+<none>      365.89 771.00
+- MLH   1   371.18 774.29

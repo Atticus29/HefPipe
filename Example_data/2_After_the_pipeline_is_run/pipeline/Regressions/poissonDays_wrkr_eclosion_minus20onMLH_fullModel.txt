@@ -1,0 +1,25 @@
+
+Call:
+glm(formula = as.formula(paste(paste(response, "~", sep = ""), 
+    paste(predictors, collapse = "+"), sep = "")), family = fam, 
+    data = no.na.data)
+
+Deviance Residuals: 
+    Min       1Q   Median       3Q      Max  
+-2.0617  -1.5952  -0.3220   0.4448   5.6820  
+
+Coefficients:
+            Estimate Std. Error z value Pr(>|z|)   
+(Intercept)   1.3055     0.3968    3.29   0.0010 **
+MLH          -2.1191     0.9095   -2.33   0.0198 * 
+---
+Signif. codes:  0 ‘***’ 0.001 ‘**’ 0.01 ‘*’ 0.05 ‘.’ 0.1 ‘ ’ 1 
+
+(Dispersion parameter for poisson family taken to be 1)
+
+    Null deviance: 371.18  on 227  degrees of freedom
+Residual deviance: 365.89  on 226  degrees of freedom
+AIC: 771
+
+Number of Fisher Scoring iterations: 5
+

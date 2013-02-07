@@ -1,0 +1,25 @@
+
+Call:
+glm(formula = as.formula(paste(paste(response, "~", sep = ""), 
+    paste(predictors, collapse = "+"), sep = "")), family = fam, 
+    data = no.na.data)
+
+Deviance Residuals: 
+    Min       1Q   Median       3Q      Max  
+-2.3549   0.4175   0.4893   0.5280   0.6641  
+
+Coefficients:
+            Estimate Std. Error z value Pr(>|z|)  
+(Intercept)    4.868      2.858   1.703   0.0885 .
+MLH           -6.478      6.306  -1.027   0.3043  
+---
+Signif. codes:  0 ‘***’ 0.001 ‘**’ 0.01 ‘*’ 0.05 ‘.’ 0.1 ‘ ’ 1 
+
+(Dispersion parameter for binomial family taken to be 1)
+
+    Null deviance: 67.355  on 91  degrees of freedom
+Residual deviance: 66.218  on 90  degrees of freedom
+AIC: 70.218
+
+Number of Fisher Scoring iterations: 5
+

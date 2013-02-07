@@ -1,0 +1,6 @@
+Start:  AIC=Inf
+Prop_gr_1_2 ~ MLH
+
+       Df Deviance AIC
+<none>      122.50 Inf
+- MLH   1   127.27 Inf
