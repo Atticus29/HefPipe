@@ -1593,7 +1593,7 @@ def remove_header_dict(data):
     return data_copy
 
 def perform_MAM(data, pipeline_directory, rejected_samples_address):#assumes that exceptions have been removed at this point
-        print "This portion of the pipeline evaluates minimum adequate models, to determine whether heterozygosity is an important predictor of a target fitness-associated trait.\n"
+        #print "This portion of the pipeline evaluates minimum adequate models, to determine whether heterozygosity is an important predictor of a target fitness-associated trait.\n"
         #data_as_dict=Table_to_DictOfLists_General(data)
         #exceptions=readCsv_input(rejected_samples_address)
         
@@ -1793,7 +1793,7 @@ def Correlation_heat_map(pipeline_directory, rejected_samples_address): #data is
         print r("cor2<-cor(just_nums_data, use='pairwise')")
         #print r("print(cor2)")
         print r("rgb.palette <- colorRampPalette(c('blue', 'yellow', 'red'), space = 'rgb')")
-        CMDs1=["pdf(file=paste(paste(pipeline_dir,'Correlations/', sep=''), '_heat_map.pdf',sep=''))", "levelplot(cor2, aspect='iso', scales=list(x=list(rot=90)), main='Correlation Of Fitness-Associated Triats', col.regions=rgb.palette(220), cuts=200, at=seq(-1,1,0.01))"]
+        CMDs1=["pdf(file=paste(paste(pipeline_dir,'Correlations/', sep=''), 'Heat_map.pdf',sep=''))", "levelplot(cor2, aspect='iso', scales=list(x=list(rot=90)), main='Correlation Of Fitness-Associated Triats', col.regions=rgb.palette(220), cuts=200, at=seq(-1,1,0.01))"]
         print r(CMDs1)
         print r("dev.off()")
 

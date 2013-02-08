@@ -1,0 +1,10 @@
+Start:  AIC=542.02
+V2 ~ MLH
+
+       Df Deviance    AIC
+- MLH   1   538.36 540.36
+<none>      538.02 542.02
+
+Step:  AIC=540.36
+V2 ~ 1
+

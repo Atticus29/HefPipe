@@ -1,0 +1,10 @@
+Start:  AIC=55.12
+QnWeight_initial ~ MLH
+
+       Df Deviance    AIC
+- MLH   1   16.365 53.368
+<none>      16.145 55.124
+
+Step:  AIC=53.37
+QnWeight_initial ~ 1
+

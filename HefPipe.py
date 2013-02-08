@@ -1,30 +1,30 @@
 from pyper import *
 import HefPipe_modules
 import os
-print "Make sure that you have no loci in your allele reports with only one column (more than 2 is ok, but the script is not yet equipped to deal with fewer than 2). If you don't do this, you will hopefully find out downstream due to indexing errors. If you're lucky. If you're not, beware!"
+#print "Make sure that you have no loci in your allele reports with only one column (more than 2 is ok, but the script is not yet equipped to deal with fewer than 2). If you don't do this, you will hopefully find out downstream due to indexing errors. If you're lucky. If you're not, beware!"
 
 #process all of the input files
-answer=raw_input("You have hopefully entered the paths to all of your files into a csv file called 'addresses.csv'. If you haven't, please do this now.Are you ready to move on? y/n")
-if answer in ['y', 'Y', 'yes', 'Yes']:
-        address_of_addresses=raw_input("What's the address of the addresses file? Example: /Users/mf/Desktop/addresses.csv")
-        data=HefPipe_modules.readCsv_input(address_of_addresses)
-        #print "addresses", data
-        data_trans=HefPipe_modules.transposed(data)
-        #print data_trans
-        allele_reports_address=data_trans[1][0]
-        keeplist_address=data_trans[1][1]
-        monolist_address=data_trans[1][2]
+#answer=raw_input("You have hopefully entered the paths to all of your files into a csv file called 'addresses.csv'. If you haven't, please do this now.Are you ready to move on? y/n")
+#if answer in ['y', 'Y', 'yes', 'Yes']:
+address_of_addresses=raw_input("What's the address of the addresses file? Example: /Users/mf/Desktop/addresses.csv")
+data=HefPipe_modules.readCsv_input(address_of_addresses)
+#print "addresses", data
+data_trans=HefPipe_modules.transposed(data)
+#print data_trans
+allele_reports_address=data_trans[1][0]
+keeplist_address=data_trans[1][1]
+monolist_address=data_trans[1][2]
 #        desktop=data_trans[1][3]
-        pipeline_directory=data_trans[1][3]
-        rejected_samples_address=data_trans[1][4]
+pipeline_directory=data_trans[1][3]
+rejected_samples_address=data_trans[1][4]
 #        set_demarcation_file_address=data_trans[1][6]
 #        address_of_sensitivity_GenePop_directory=data_trans[1][7]
-        address_of_acceptor_file=data_trans[1][5]
-        #print "got to here"
-        #print (allele_reports_address,keeplist_address,monolist_address,desktop,pipeline_directory,rejected_samples_address,set_demarcation_file_address,address_of_msat_rhh,address_of_sensitivity_GenePop_directory,address_of_acceptor_file)
-        #print "and got to here"
-else:
-        print "Please do this and run again"
+address_of_acceptor_file=data_trans[1][5]
+#print "got to here"
+#print (allele_reports_address,keeplist_address,monolist_address,desktop,pipeline_directory,rejected_samples_address,set_demarcation_file_address,address_of_msat_rhh,address_of_sensitivity_GenePop_directory,address_of_acceptor_file)
+#print "and got to here"
+#else:
+#        print "Please do this and run again"
 #clean up the allele reports to make ready for the combine module below
 HefPipe_modules.check_that_keeplist_and_monolist_are_mutually_exclusive(keeplist_address, monolist_address)
 HefPipe_modules.allele_report_pipeline_directory_version(allele_reports_address, keeplist_address, monolist_address, pipeline_directory, rejected_samples_address)
@@ -116,10 +116,12 @@ if answer in ['y','Y','yes', 'Yes']:
         run_Regressions=raw_input("Do you want to run regression tests?")
         if run_Regressions in ['y','Y','yes','Yes']:
                 #now run the regressions on the entire sample set
-                done_status='y'
-                while done_status in ['yes', 'y', 'Yes']:
-                        HefPipe_modules.perform_MAM(HefPipe_modules.readCsv_input(pipeline_directory+'MLH_output.csv'), pipeline_directory, rejected_samples_address)
-                        done_status=raw_input("Do you want to run a different MAM model? y/n")
+                answer=raw_input("Do you want to run regressions on the full data set?")
+                if answer in ['yes', 'y', 'Yes','Y']:
+                        done_status='y'
+                        while done_status in ['yes', 'y', 'Yes']:
+                                HefPipe_modules.perform_MAM(HefPipe_modules.readCsv_input(pipeline_directory+'MLH_output.csv'), pipeline_directory, rejected_samples_address)
+                                done_status=raw_input("Do you want to run a different MAM model? y/n")
 
 
 
