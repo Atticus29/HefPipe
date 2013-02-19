@@ -3214,3 +3214,33 @@ def check_that_keeplist_and_monolist_are_mutually_exclusive(keeplist_address, mo
                         print "The following loci are in keeplist AND in monolist. Please resolve this situation and re-run the pipeline:"
                         print problem_loci
                         stophack=raw_input(" ")
+
+def opt1_parse(filename, pipeline_directory, outputname):#outputname must include '.csv'
+    opt1=open(filename).readlines()
+
+    qs=re.compile(r'^(\w*)\s*.*')
+    query1=re.compile(r'^(\w*-*\w*)\s*(\d*\.*\d+)\t*\s*(\d*\.*\d+)\t*\s*(-*\d*\.*\d+)\t*\s*(-*\d*\.*\d+)\t*\s*(\d+)\s*switches.*')
+
+
+
+    final=[['locus','pval','se','wc','rh','steps']]
+    for line in opt1:
+        try:
+            locus=re.search(query1,line).group(1)
+            #print "locus", locus
+            pval=re.search(query1,line).group(2)
+            #print "pval", pval
+            se=re.search(query1,line).group(3)
+            #print "se", se
+            wc=re.search(query1,line).group(4)
+            #print "wc", wc
+            rh=re.search(query1,line).group(5)
+            #print "rh", rh
+            steps=re.search(query1,line).group(6)
+            #print "steps", steps
+            final.append([locus,pval,se,wc,rh,steps])
+        except:
+            pass
+            
+    #print "final", final
+    saveCsv(final, outputname, pipeline_directory)
