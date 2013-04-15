@@ -524,7 +524,7 @@ def allele_report_pipeline_directory_version (allele_reports_address, keeplist_a
         #open the file
         file=allele_reports_address
         file+=a
-        print "file", file
+        #print "file", file
         data=readCsv_input(file)
         
         #get rid of the top rows with the unimportant information
@@ -749,6 +749,8 @@ def most_missingest (cumulative, keeplist, pipeline_directory):
         #print "The loci that get scored", unique_cumulative
         missing=[]
         for w in range(0, len(keeplist)):
+                #print "w", w
+                #print "keeplist[w][0]", keeplist[w][0]
                 if keeplist[w][0] not in unique_cumulative:
                         missing.append(keeplist[w])
         saveCsv(missing, 'missing.csv', pipeline_directory)
@@ -1511,7 +1513,7 @@ def get_bifurcation(data, pipeline_directory, rejected_samples_address):
                 new_value=raw_input()
                 split_new_value=new_value.split(',')
                 split_new_value_remove_spaces=[x.replace(' ','') for x in split_new_value] #can't remember why I originally did this, but it creates a problem when the trait mismatches the trait list, which contains spaces. Removed for now 7.17.2012
-                print "temp split_new_value_remove_spaces[0]", split_new_value_remove_spaces[0]
+                #print "temp split_new_value_remove_spaces[0]", split_new_value_remove_spaces[0]
                 the_trait=split_new_value_remove_spaces[0]
                 for i,row in enumerate(transposed(data)):
                         if row[0]==the_trait:
