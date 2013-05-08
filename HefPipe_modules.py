@@ -524,7 +524,7 @@ def allele_report_pipeline_directory_version (allele_reports_address, keeplist_a
         #open the file
         file=allele_reports_address
         file+=a
-        #print "file", file
+        print "file", file
         data=readCsv_input(file)
         
         #get rid of the top rows with the unimportant information
