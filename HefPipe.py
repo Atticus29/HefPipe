@@ -71,7 +71,7 @@ if answer in ['y','Y','yes', 'Yes']:
             print r("setwd(pipeline_dir)")
             print r("require('Rhh')")
             print r("h <- mlh('rhh_ready.txt', 'Rhh_test_output.txt', '0', 4)")
-            CMDS = ["sink(file='mean_and_corr_probs.txt')", "r <- h_cor('rhh_ready.txt', '0', 250, 'hl')", "mean(r)", "the_mean<-mean(r)", "print(the_mean)", "quantile(r, probs=c(0.025, 0.975))", "the_correlation<-quantile(r,probs=c(0.025, 0.975))", "print(the_correlation)", "sink()"]
+            CMDS = ["sink(file='mean_and_corr_probs.txt')", "r <- h_cor('rhh_ready.txt', '0', 250, 'hl')", "mean(r)", "the_mean<-mean(r)","print('HHC mean:')", "print(the_mean)", "quantile(r, probs=c(0.025, 0.975))", "the_correlation<-quantile(r,probs=c(0.025, 0.975))","print('95% Confidence interval:')", "print(the_correlation)", "sink()"]
             print r(CMDS)
             CMDS2= ["pdf('hhc_plot.pdf')", "hist(r)", "dev.off()"]
             print r(CMDS2)
