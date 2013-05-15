@@ -158,17 +158,17 @@ if answer in ['y','Y','yes', 'Yes']:
                                 done_status=raw_input("Do you want to run a different MAM model? y/n")
                         answer=raw_input("Should I continue with more regressions on files of your own making?")
 
-        ##run fullModel conversion to spreadsheets
-        answer=raw_input("Do you want to convert your fullModel.txt files from the regressions you ran into csv files?")
+        ##run full_data_set conversion to spreadsheets
+        answer=raw_input("Do you want to convert your full_data_set.txt files from the regressions you ran into csv files?")
         if answer in ['yes','y','Y','Yes']:
-                HefPipe_modules.process_all_fullModel_files_in_directory(pipeline_directory+'Regressions/')
-        data_sub=raw_input("Do you want to convert your fullModel.txt files in the Data Subsets directory into csv files?")
+                HefPipe_modules.process_all_full_data_set_files_in_directory(pipeline_directory+'Regressions/')
+        data_sub=raw_input("Do you want to convert your full_data_set.txt files in the Data Subsets directory into csv files?")
         while data_sub in ['yes','y','Y','Yes']:
-                HefPipe_modules.process_all_fullModel_files_in_directory(raw_input("What's the path to the directory of fullModel.txt files you want to convert"))
+                HefPipe_modules.process_all_full_data_set_files_in_directory(raw_input("What's the path to the directory of full_data_set.txt files you want to convert"))
                 data_sub=raw_input("Continue with another data subset?")
-        user_made=raw_input("Do you want to convert your fullModel.txt files generated from the user-entered regression spreadsheet into csv files?")
+        user_made=raw_input("Do you want to convert your full_data_set.txt files generated from the user-entered regression spreadsheet into csv files?")
         while user_made in ['yes','y','Y','Yes']:
-                HefPipe_modules.process_all_fullModel_files_in_directory(raw_input("What's the path to the directory of fullModel.txt files you want to convert"))
+                HefPipe_modules.process_all_full_data_set_files_in_directory(raw_input("What's the path to the directory of full_data_set.txt files you want to convert"))
                 user_made=raw_input("Continue with user-entered regression spreadsheets (if you had more than one)?")                        
 
         #then, do HFC analyses on all panel-size bifurcations

@@ -1675,9 +1675,9 @@ def perform_MAM(data, pipeline_directory, rejected_samples_address):#assumes tha
         print r("no.na.data<-na.omit(data[c(predictors_reduced,response)])")
         #print r("str(data)")
         print r("model <- glm(formula=as.formula(paste(paste(response,'~', sep=''),paste(predictors,collapse='+'), sep='')),family=fam, no.na.data)")
-        CMDs1=["sink(file=paste(paste(pipeline_dir,'Regressions/', sep=''),paste(paste(paste(paste(fam,response,sep=''), 'on', sep=''), predictor_filename, sep=''),'_fullModel.txt', sep='')))", "print(summary(model))", "sink()"]
+        CMDs1=["sink(file=paste(paste(pipeline_dir,'Regressions/', sep=''),paste(paste(paste(paste(fam,response,sep=''), 'on', sep=''), predictor_filename, sep=''),'_full_data_set.txt', sep='')))", "print(summary(model))", "sink()"]
         CMDs2=["sink(file=paste(paste(pipeline_dir,'Regressions/', sep=''),paste(paste(paste(paste(fam,response,sep=''), 'on', sep=''), predictor_filename, sep=''),'.txt', sep='')))", "step(model)", "sink()"]
-        CMDs3=["tiff(filename=paste(paste(pipeline_dir,'Regressions/', sep=''),paste(paste(paste(paste(fam,response,sep=''), 'on', sep=''), predictor_filename, sep=''),'_fullModel_assumptions_check.tiff', sep='')))", "layout(matrix(c(1,2,3,4),2,2))", "plot(model)", "dev.off()"]
+        CMDs3=["tiff(filename=paste(paste(pipeline_dir,'Regressions/', sep=''),paste(paste(paste(paste(fam,response,sep=''), 'on', sep=''), predictor_filename, sep=''),'_full_data_set_assumptions_check.tiff', sep='')))", "layout(matrix(c(1,2,3,4),2,2))", "plot(model)", "dev.off()"]
         print r(CMDs1)
         print r(CMDs2)
         print r(CMDs3)
@@ -2609,8 +2609,8 @@ def generate_obs_exp_het_homo_spreadsheet(genePop_file_address, pipeline_directo
     #print "locus_names", locus_names
     saveCsv(locus_names,'H_obs_and_H_exp.csv',pipeline_directory)
 
-def process_all_fullModel_files_in_directory(directory_address):
-        #print "directory_address at entry of process_all_fullModel_files_in_directory", directory_address
+def process_all_full_data_set_files_in_directory(directory_address):
+        #print "directory_address at entry of process_all_full_data_set_files_in_directory", directory_address
         dir_list=os.listdir(directory_address)
         #print "before", dir_list
         for i, f in enumerate(dir_list):
@@ -2619,17 +2619,17 @@ def process_all_fullModel_files_in_directory(directory_address):
         dir_list=os.listdir(directory_address)
         #print type(dir_list)
         #print len(dir_list)
-        fullModels=[x for x in dir_list if "fullModel.txt" in x]
-        #print "fullModels",fullModels
+        full_data_sets=[x for x in dir_list if "full_data_set.txt" in x]
+        #print "full_data_setss",full_data_sets
         try:
                 os.mkdir(directory_address+'processed_model_output/')
         except:
                 pass
 
-        for filename in fullModels:
-                saveCsv(process_single_fullModel_file(directory_address+filename), title_from_address(directory_address+filename)+'_processed.csv' ,directory_address+'processed_model_output/')
+        for filename in full_data_sets:
+                saveCsv(process_single_full_data_set_file(directory_address+filename), title_from_address(directory_address+filename)+'_processed.csv' ,directory_address+'processed_model_output/')
 
-def process_single_fullModel_file(file_address):
+def process_single_full_data_set_file(file_address):
         #print "file_address", file_address
         f=open(file_address).readlines()
         the_cream=[]
