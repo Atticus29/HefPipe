@@ -1792,7 +1792,8 @@ def Correlation_heat_map(pipeline_directory, rejected_samples_address): #data is
         print r("just_nums<-sapply(data_for_cor,is.numeric)")
         #print r("print(just_nums)")
         print r("just_nums_data<-data_for_cor[,just_nums]")
-        print r("cor2<-cor(just_nums_data, use='pairwise')")
+        #print r("print(just_nums_data)")
+        print r("cor2<-cor(just_nums_data[,2:length(just_nums_data)], use='pairwise')")
         #print r("print(cor2)")
         print r("rgb.palette <- colorRampPalette(c('blue', 'yellow', 'red'), space = 'rgb')")
         CMDs1=["pdf(file=paste(paste(pipeline_dir,'Correlations/', sep=''), 'Heat_map.pdf',sep=''))", "levelplot(cor2, aspect='iso', scales=list(x=list(rot=90)), main='Correlation Of Fitness-Associated Triats', col.regions=rgb.palette(220), cuts=200, at=seq(-1,1,0.01))"]
