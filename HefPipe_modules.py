@@ -2357,7 +2357,7 @@ def all_correlations_and_pvalues(MLH_output_csv, save_directory, rejected_sample
         print r("just_nums_data<-data_for_cor[,just_nums]")
         #print r("print ('just_nums_data')")
         #print r("print (just_nums_data)")
-        print r("print (str(just_nums_data))")
+        #print r("print (str(just_nums_data))")
         print r("z<-cor.test.p(just_nums_data)")
         print r("w<-cor.prob(just_nums_data)")
         #print r("print(w)")
