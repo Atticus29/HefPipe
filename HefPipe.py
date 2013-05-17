@@ -121,13 +121,13 @@ if answer in ['y','Y','yes', 'Yes']:
                         done_status='y'
                         while done_status in ['yes', 'y', 'Yes']:
                                 HefPipe_modules.perform_MAM(HefPipe_modules.readCsv_input(pipeline_directory+'MLH_output.csv'), pipeline_directory, rejected_samples_address)
-                                done_status=raw_input("Do you want to run a different MAM model? y/n")
+                                done_status=raw_input("Do you want to run a different regression model? y/n")
 
 
 
 
                 #then, run the sample-splitting bifurcations
-                answer=raw_input("This pipeline is also equipped to run HFCs on only certain individuals bearing certain trait values (e.g., stressed individuals).  Would you like to run such an analysis (y/n)?")
+                answer=raw_input("This pipeline is also equipped to run regressions on only certain individuals bearing certain trait values (e.g., stressed individuals).  Would you like to run such an analysis (y/n)?")
                 while answer==('y' or 'yes'):
                     #create a subset of the data the subset data object is a list, where the first element is the data table, and the second element is the address of the data table
                     subset_data=HefPipe_modules.get_bifurcation(HefPipe_modules.readCsv_input(pipeline_directory+'MLH_output.csv'), pipeline_directory, rejected_samples_address)
@@ -136,7 +136,7 @@ if answer in ['y','Y','yes', 'Yes']:
                     done_status='y'
                     while done_status in ['yes', 'y', 'Yes']:
                             HefPipe_modules.perform_MAM(subset_data[0], subset_data[1], rejected_samples_address)
-                            done_status=raw_input("Do you want to run a different MAM model? y/n")
+                            done_status=raw_input("Do you want to run a different regression model? y/n")
 
                     answer=raw_input("Should I continue with more subset HFCs?")
                     
@@ -155,7 +155,7 @@ if answer in ['y','Y','yes', 'Yes']:
                         done_status='yes'
                         while done_status in ['yes', 'y', 'Y', 'Yes']:
                                 HefPipe_modules.perform_MAM(HefPipe_modules.readCsv_input(address_of_csv),pipeline_directory+directory_name+'/', rejected_samples_address)
-                                done_status=raw_input("Do you want to run a different MAM model? y/n")
+                                done_status=raw_input("Do you want to run a different regression model? y/n")
                         answer=raw_input("Should I continue with more regressions on files of your own making?")
 
         ##run full_data_set conversion to spreadsheets
