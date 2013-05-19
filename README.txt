@@ -1,5 +1,6 @@
 
 			HeFPipe
+Full video tutorial available at: http://www.youtube.com/watch?v=cKhKmeqjG6I&feature=share&list=PLv-e9CNPZr-o34dIwUKi-Eew-t6A643tX
 
 Please refer to https://github.com/Atticus29/HefPipe_repos for bug fixes.
 
