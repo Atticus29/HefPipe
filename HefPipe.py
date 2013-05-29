@@ -3,7 +3,10 @@ import HefPipe_modules
 import os
 #print "Make sure that you have no loci in your allele reports with only one column (more than 2 is ok, but the script is not yet equipped to deal with fewer than 2). If you don't do this, you will hopefully find out downstream due to indexing errors. If you're lucky. If you're not, beware!"
 
-#process all of the input files
+##################################
+##process all of the input files##
+##################################
+
 #answer=raw_input("You have hopefully entered the paths to all of your files into a csv file called 'addresses.csv'. If you haven't, please do this now.Are you ready to move on? y/n")
 #if answer in ['y', 'Y', 'yes', 'Yes']:
 address_of_addresses=raw_input("What's the address of the addresses file? Example: /Users/mf/Desktop/addresses.csv")
@@ -37,7 +40,10 @@ if answer in ['y','Y','yes', 'Yes']:
         #print "sample names pass back from combine_allele_report_pipeline to HFC_pipeline, to be passed to sensitivity_analysis", sample_names_list_e1_keys_as_numbers_e2
         print "Files have been converted to GenePop format, which can be formatted to STRUCTURE format using the program CONVERT (URL here)"
 
-        #calculate locus statistics, such as effective number of alleles, actual number of alleles, He, and Hobs, and output them into spreadsheets
+        ##############################################################################################################################################
+        ##calculate locus statistics, such as effective number of alleles, actual number of alleles, He, and Hobs, and output them into spreadsheets##
+        ##############################################################################################################################################
+        
         answer=raw_input("Do you want to calculate the effective number of alleles from GenePop data that you have run through option 5 (Basic information, Fis, and gene diversities)? You'll have to have generated a .txt  file from the HTML output that you got from submitting the genePop file to GenePop Web Option 5.") 
         if answer in ['y','Y','yes', 'Yes']:
                 opt5=raw_input("What's the address of the genePop option 5 file?")
@@ -45,11 +51,17 @@ if answer in ['y','Y','yes', 'Yes']:
                 HefPipe_modules.effective_allele_number(pipeline_directory+'allele_freqs.csv', pipeline_directory)
                 HefPipe_modules.generate_obs_exp_het_homo_spreadsheet(opt5,pipeline_directory)
 
-        #convert GenePop input to rmes input
+        #######################################
+        ##convert GenePop input to rmes input##
+        #######################################
+                
         print "converting to g2"
         HefPipe_modules.convert_to_g2 (pipeline_directory, keeplist_address)
 
-        #convert final_output.csv to a directory of gephast-formatted files
+        ######################################################################
+        ##convert final_output.csv to a directory of gephast-formatted files##
+        ######################################################################
+
         print "converting to GEPhAST"
         HefPipe_modules.generate_gephast_files(address_of_acceptor_file, pipeline_directory+'final_output.csv', pipeline_directory, rejected_samples_address)
         answer=raw_input("Do you want to create a list of gephast p-values for the traits for which you have run the gephast macro on?")
@@ -57,12 +69,18 @@ if answer in ['y','Y','yes', 'Yes']:
                 pause_hack=raw_input("Please do NOT proceed until you have run the gephast macro on the relevent spreadsheets and saved the output spreadsheets (these can be the same spreadsheet with the two new rows at  the bottom added) into a directory of your own making where they can be processed.")
                 HefPipe_modules.gephast_process_p_vals(raw_input("What's the address of that directory? Note: all csv files in that directory will be treated as if they are the results of gephast simulations. Make sure the address ends in a backslash!"),pipeline_directory)
                 ##new modules here
-                
-        #convert GenePop input to rhh input
+
+        ######################################                
+        ##convert GenePop input to rhh input##
+        ######################################
+
         print "converting to rhh"
         HefPipe_modules.genePop_to_rhh(pipeline_directory, rejected_samples_address)
 
-        #run rhh
+        ###########
+        ##run rhh##
+        ###########
+
         answer=raw_input("Are you ready for run the rhh R scrip y/n?")
         if answer in ['y','Y','yes', 'Yes']:
             from pyper import *
@@ -87,8 +105,10 @@ if answer in ['y','Y','yes', 'Yes']:
 
         ##generate number of samples per locus
         HefPipe_modules.num_samples_per_locus(pipeline_directory)
-        
-        ##correlate the fitness data
+
+        ##############################
+        ##correlate the fitness data##
+        ##############################
 
         #r=R(use_numpy=True)
         #r.address_of_acceptor_file_r=address_of_acceptor_file
@@ -106,12 +126,19 @@ if answer in ['y','Y','yes', 'Yes']:
         #HefPipe_modules.spearman_corr_chart_padjust(pipeline_directory, address_of_acceptor_file)
         #HefPipe_modules.pearson_corr_chart_padjust(pipeline_directory, address_of_acceptor_file)
 
+        #######################
+        ##run slh f-raio test##
+        #######################
 
         run_slh_test=raw_input("Do you want to test for single-locus effects?")
         if run_slh_test in ['y','Y','yes', 'Yes']:
                 #run the single-locus association test (f-ratio test of multiple regression model and MLH-as-single-predictor model)
                 HefPipe_modules.combine_het_homo_and_fitness_scores(pipeline_directory+'heterozygotes_and_homozygotes.csv', pipeline_directory+'MLH_output.csv', pipeline_directory)
                 HefPipe_modules.run_model_comparison(pipeline_directory+'genotype_fitness_combine_for_slh_test_as_spreadsheet.csv', keeplist_address, pipeline_directory)
+
+        ###################
+        ##Run regressions##
+        ###################
 
         run_Regressions=raw_input("Do you want to run regression tests?")
         if run_Regressions in ['y','Y','yes','Yes']:
@@ -158,7 +185,10 @@ if answer in ['y','Y','yes', 'Yes']:
                                 done_status=raw_input("Do you want to run a different regression model? y/n")
                         answer=raw_input("Should I continue with more regressions on files of your own making?")
 
-        ##run full_data_set conversion to spreadsheets
+        ################################################
+        ##run full_data_set conversion to spreadsheets##
+        ################################################
+                        
         answer=raw_input("Do you want to convert your full_data_set.txt files from the regressions you ran into csv files?")
         if answer in ['yes','y','Y','Yes']:
                 HefPipe_modules.process_all_full_data_set_files_in_directory(pipeline_directory+'Regressions/')

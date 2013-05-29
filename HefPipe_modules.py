@@ -7,20 +7,1739 @@ import math
 import itertools
 import collections
 from pyper import *
-#os.chdir("/Users/markfisher/Desktop")
+
+
+#####################################
+##processing all of the input files##
+#####################################
 
 #opens spreadsheet and assigns it to rows
-def readCsv():
-        filename=raw_input("Name of csv file you want to read")
-        csv_reader=csv.reader(open(filename, "rU"))
+def readCsv_input(filesname):
+        csv_reader=csv.reader(open(filesname, "rU"))
         try:
                 rows=[row for row in csv_reader]
         except:
                 rows=[]
         return rows
 
-def readCsv_input(filesname):
-        csv_reader=csv.reader(open(filesname, "rU"))
+## {{{ http://code.activestate.com/recipes/410687/ (r4)
+def transposed(lists):
+   if not lists: return []
+   return map(lambda *row: list(row), *lists)
+
+def check_that_keeplist_and_monolist_are_mutually_exclusive(keeplist_address, monolist_address):
+        k=readCsv_input(keeplist_address)
+        m=readCsv_input(monolist_address)
+        problem_loci=[]
+        for row in k:
+                if row in m:
+                        problem_loci.append(row[0])
+        if len(problem_loci)>0:
+                        print "The following loci are in keeplist AND in monolist. Please resolve this situation and re-run the pipeline:"
+                        print problem_loci
+                        stophack=raw_input(" ")
+
+def allele_report_pipeline_directory_version (allele_reports_address, keeplist_address, monolist_address, pipeline_directory, rejected_samples_address):
+    exceptions=readCsv_input(rejected_samples_address)
+    #note: you will have to run this more than once. The second time will be after you have dealt with all of the issues related to missing.txt
+    alleleList=[x for x in os.listdir(allele_reports_address) if '.csv' in x]
+    #print "alleleList", alleleList
+    present_cumulative=[]
+    keeplist=readCsv_input(keeplist_address)
+    #print "keeplist",keeplist
+    monolist=readCsv_input(monolist_address)
+    #print "monolist", monolist
+    renamed_files=[]
+
+
+    #go through all of the allele reports on the allelereports list and do the following things:    
+    for a in alleleList: #len(alleleList)
+        #print "a", a
+        #open the file
+        file=allele_reports_address
+        file+=a
+        print "file", file
+        data=readCsv_input(file)
+        
+        #get rid of the top rows with the unimportant information
+        #print "data before cleanup", data
+        cleaned=cleanup(data)
+        #print "data after cleanup", cleaned
+
+        #fill the top row with names corresponding to loci
+        filled=fill_header(cleaned)
+        #print "data after fill_header", filled
+
+        #print "The file",alleleList[a][0], "needs to have the following loci fixed:"
+        #remove loci that have three or more columns ----------------This is now also the spot/function to check for items on keeplist that are being removed
+        removed_bad=remove_bad_loci(filled, keeplist)
+        #print "after bad removed", removed_bad
+
+        #keeps track of every locus that has been processed
+        for x in range (0, len(removed_bad[0])): #this assumes that the locus names are in the first row, which they should be at this point
+            present_cumulative.append(removed_bad[0][x])
+        #print "present_cumulative", present_cumulative
+        #gets rid of loci still in the samples that we know apriori (from monolist) are monomorphic
+        rid=remove_nonscores(removed_bad, monolist)
+        #print "rid", rid
+
+        #renames the ID with numbers instead of their long crazy names
+        rid_trans=transposed(rid)
+        #print "rid_trans", rid_trans
+        #delimiter=raw_input("If your sample names have a number in the front of them separated by a delimiter, what is that delimiter? Otherwise, press enter.")
+        #if len(delimiter) !=0:
+            #print "before renaming row", rid_trans[1]
+        rid_trans[1]=rename_row(rid_trans[1])
+        #print "after renaming row", rid_trans[1]
+        rid_back=transposed(rid_trans)
+
+        rid_back=fill_non_star_missing_with_dups(rid_back)
+        #print "rid_back", rid_back
+        filename='edited_'
+        filename+=a
+        renamed_files.append([filename])
+        saveCsv(rid_back,filename, pipeline_directory)
+
+
+    #print "present_cumulative", present_cumulative
+    #print "keeplist", keeplist
+
+    #cross references the loci that have been scored with a list of loci that SHOULD have been scored and reports any on the keeplist that were missed (usually means some were scored as triploids, etc.)    
+    most_missingest(present_cumulative, keeplist, pipeline_directory)
+    #print "renamed_files", renamed_files
+    saveCsv(renamed_files, 'edited_file_list', pipeline_directory)
+
+    #check that all of the samples that are present in one file are present in the others
+    unique_samples_in_edited_files(pipeline_directory+'edited_file_list', pipeline_directory, exceptions)
+
+def combine_allele_report_pipeline_dict(pipeline_directory, keeplist_address, rejected_samples_address):
+        #The first allele report on the allele report list must contain the most comprehensive list of samples (i.e., if you have two DNA plates for the same panel of loci in two different GeneMarker files for one panel you scored the two plates together in another panel, use the GeneMarker file of the latter as the first in your list.
+        files_to_combine=readCsv_input(pipeline_directory+'edited_file_list')
+
+        address_to_directory=pipeline_directory
+        keeplist=readCsv_input(keeplist_address)
+        exceptions=readCsv_input(rejected_samples_address)
+        #print "exceptions", exceptions
+        whole_file=readCsv_input(address_to_directory+files_to_combine[0][0]) #I think the point of whole_file is to give a size to populate the list below
+        #print "whole file", whole_file
+        list_of_sample_names=[]
+        for x in range(1, len(whole_file)):
+                #print "whole_file[x][1]", whole_file[x][1]
+                if [whole_file[x][1]] not in exceptions:
+                        #print "this is not in exceptions, supposedly", whole_file[x][1]
+                        list_of_sample_names.append(whole_file[x][1])
+        #print "list of sample names", list_of_sample_names
+
+        #populate a dicitonary called samples with keys that are the sample names with a list of locus names, each of which is itself a list that will later have genotypes appended to it
+        samples={}
+        location_of_keeplist=keeplist_address
+        for x in range (0, len(list_of_sample_names)):
+                #print "list_of_sample_names[x]", list_of_sample_names[x]
+                samples[list_of_sample_names[x]]=readCsv_input(location_of_keeplist)
+        #print "samples after filling", samples
+        #print "the keys in samples", samples.keys()
+        
+        address_of_rejected_samples=rejected_samples_address
+        exceptions=readCsv_input(address_of_rejected_samples)
+        #print "exceptions", exceptions
+
+        for w in range(0, len(files_to_combine)): #for each file in the list
+            filename=address_to_directory
+            filename+=files_to_combine[w][0]
+            print 'file',filename
+            temp=readCsv_input(filename) # read the file
+            #print 'data from that file',temp
+            #temp_trans=transposed(temp)
+            target_index=0
+            for z in range (1, len(temp)):
+                #print "z", z
+                for y in range (2, len(temp[0])):
+                    #print "y", y
+                    #print type(temp[z][1])
+                    #print "temp[z][1] should be a sample name and a key in the samples dict",temp[z][1]
+                    #print temp[z][1].find('B')
+                    if (temp[z][1].find('blank')<0 and temp[z][1].find('Blank')<0 and [temp[z][1]] not in exceptions):#as long as the individual's name doesn't contain the word "blank", as in Blank or Blank_someNumber
+                        #print "there should never be a blank here. Is there? :", temp[z][1] #the first "and" might need to change to an "or"
+                        #print len(samples[int(temp[z][1])]) #might produce an error
+                        for i in range (0, len(keeplist)):# I think is analogous #len(samples[int(temp[z][1])])
+                                    #print "data [0][y]",temp[0][y]
+                                    #print samples[int(temp[z][1])][i] #might produce an error
+                                    #print "temp[0][",y,"]", temp[0][y]
+                                    #print "temp[",z,"][1]", temp[z][1]
+                                    #print "i", i
+                                    #print "samples[temp[",z,"][1]][",i,"]", samples[(temp[z][1])][i]
+                                    if temp[0][y] in samples[((temp[z][1]))][i]:# aka if the locus name is in this particular list within this particular sample #took out [i] #just added in the int here; might not be a good idea
+                                        #print "this loop gets entered"
+                                        #print int(temp[z][1])
+                                        #print "i", i
+                                        target_index=i
+                                        #print "before",samples[(temp[z][1])][target_index]
+                                        if (temp[z][1] not in exceptions  ): #this may not matter anymore because of the "exceptions" generated in the upstream script
+                                            #print "target index", target_index
+                                            #print "temp[z][y]", temp[z][y]
+                                            if (temp[z][y]!='OL'and temp[z][y]!=''): # removed "and temp[z][y]!=''" from if statement
+                                                if len(samples[(temp[z][1])][target_index])>3: #7_9_2012 I added the following script, which should collapse to diploid all samples that were tetraploid (likely because the samples were being repeated?) This, clearly, also deals with the problem of having two samples with the same names and different genotypes at a locus. It does so in such a way that missing genotypes are replaced with scored genotypes and homozygous genotypes are replaced with heterozygous ones.
+                                                        #print "data [0][y]",temp[0][y]
+                                                        #print samples[int(temp[z][1])][i] #might produce an error
+                                                        #print "temp[0][",y,"]", temp[0][y]
+                                                        #print "temp[",z,"][1]", temp[z][1]
+                                                        #print "samples[temp[",z,"][1]][",i,"]", samples[(temp[z][1])][i]
+                                                        old_genotype=samples[(temp[z][1])][target_index]                                                        
+                                                        #print "old_genotype at this slot", old_genotype
+                                                        new_genotype=[temp[z][y]]
+                                                        #print "new_genotype at this slot", new_genotype
+                                                        if '**' in old_genotype and '**' not in new_genotype:
+                                                                samples[(temp[z][1])][target_index]=[ x for x in samples[(temp[z][1])][target_index] if "**" not in x ]                                                                
+                                                                #print "after removal", samples[(temp[z][1])][target_index]
+                                                        elif new_genotype[0] in old_genotype:
+                                                                #print "had to remove one"
+                                                                samples[(temp[z][1])][target_index].remove(new_genotype[0])
+                                                                #print "after removal: ", samples[(temp[z][1])][target_index]
+                                                        else:
+                                                                #print "you haven't seen this problem yet", samples[(temp[z][1])][target_index]
+                                                                Purge_Polyploid_MisScore_from_Locus(samples[(temp[z][1])][target_index])
+                                                                #print "after ", samples[(temp[z][1])][target_index]
+                                                samples[(temp[z][1])][target_index]=samples[(temp[z][1])][target_index]+[temp[z][y]]#may possibly need to deal with bracketing issues, depending on whether lists are appended to the rows, or strings are appended to the end of the single list in each row of each "keeplist"
+                                                #print "after",samples[(temp[z][1])][target_index]
+                                            else:
+                                                #print "z",z,"y",y
+                                                samples[(temp[z][1])][target_index]=samples[(temp[z][1])][target_index]+['**']
+    
+        #print "before re-purging", samples
+        #testDict(samples)
+        samples=Purge_Polyploid_MisScores(samples)
+        #print "samples", samples
+        DictOfLists_toTable(samples, pipeline_directory, rejected_samples_address)
+        keys_as_numbers_sorted=GenePop_Output(samples, pipeline_directory, rejected_samples_address)
+        return [list_of_sample_names, keys_as_numbers_sorted]
+
+##############################################################################################################################################
+##calculate locus statistics, such as effective number of alleles, actual number of alleles, He, and Hobs, and output them into spreadsheets##
+##############################################################################################################################################
+
+
+def generate_allele_frequency_spreadsheet(genePop_file_address, pipeline_directory):
+    linelist=open(genePop_file_address).readlines()
+    #print type(linelist)
+    #print linelist
+    #print "module 1 entered"
+    good_data=[]
+    locus_names=[]
+    parsing = False
+    new=[]
+    regex_query=re.compile('Locus:\s(.*)')
+
+    ##get a list of locus names##
+    for line in linelist:
+            if "Locus" in line:
+                    #print "this line",line
+                    locus_names.append(re.search(regex_query,line).group(1))
+    #print "after regex", locus_names
+##    for line in locus_names:
+##            new.append(line.replace('Locus:',''))
+##    locus_names=remove_spaces_from_list_recursive(new)
+    #print locus_names
+    
+    ##isolate the lines between Fis and Tot and store them in good_data##
+    for line in linelist:
+            if line.startswith("                                           Fis"):
+                parsing = True
+            elif line.startswith("    Tot"):
+                parsing = False
+            if parsing:
+                good_data.append(line.replace('\n','')) 
+    #print "good_data", good_data
+
+    ##split the data by spacing##
+    for i, entry in enumerate(good_data):
+            good_data[i]=entry.split()
+    #print good_data
+
+    header=['Allele', 'Sample', 'count', 'Frequency', 'W&C', 'R&H']
+    loc_count=0
+    for i,entry in enumerate(good_data):
+            if entry==header: 
+                    good_data[i]=[locus_names[loc_count]]
+                    loc_count+=1
+    #print good_data
+
+    ##remove Fis and ['----------------'] lines##
+    header2=['Allele_Name', 'Sample_count', 'Allele_Frequency', 'Fis_WC']
+    Fis_removed=[header2]
+    for entry in good_data:
+            if entry not in [['----------------'],['Fis']]:
+                    Fis_removed.append(entry)
+
+    ##insert relevant locus name in front of every row##                   
+    locus_tracker='Locus_name'                   
+    for x in range (0, len(Fis_removed)):
+            if Fis_removed[x][0] in locus_names:
+                    locus_tracker=Fis_removed[x][0]
+            Fis_removed[x].insert(0,locus_tracker)
+            
+    #print Fis_removed
+
+    ##remove the rows with two entries in lcous_names##
+    Locus_dups_removed=[]
+    for entry in Fis_removed:
+            if not contains_dupes(entry):
+                    Locus_dups_removed.append(entry)
+    #print "gets to the end of the generate allele_spreadsheet module", Locus_dups_removed                   
+    saveCsv(Locus_dups_removed,'allele_freqs.csv',pipeline_directory)
+
+def effective_allele_number(allele_freqs_file_address, pipeline_directory):
+   #print "script gets to beginning of this module"
+   original=readCsv_input(allele_freqs_file_address)
+   #print data
+
+   data=copy.deepcopy(original)
+   del data[0]
+   #print data
+
+   locus_list=[x[0] for x in data]
+   locus_list=uniques(locus_list)
+   #print locus_list
+
+   effective_alleles=[['Locus','Effect_number_alleles', 'Actual_number_alleles']]
+   actual_number_allles=[["Actual_number_alleles"]]
+   for locus in locus_list:
+       sum_p=0
+       allele_count=0
+       for row in data:
+           #print "row[0]", row[0], "locus", locus
+           if row[0]==locus:
+               #print "row[0]", row[0], "locus", locus
+               sum_p+=(float(row[3])*float(row[3]))
+               allele_count+=1
+       #print "sum_p", sum_p
+       #print "allele_count", allele_count
+       effective_alleles.append([locus, float(1.0/sum_p), allele_count])
+       #actual_number_alleles.append(allele_count)
+
+   #data_trans=HefPipe_modules.transposed(original)
+   #data_trans.append(effective_alleles)
+   #back=HefPipe_modules.transposed(data_trans)
+   #print "script gets here", effective_alleles
+   saveCsv(effective_alleles, 'Effective_alleles_per_locus.csv', pipeline_directory)                               
+def generate_obs_exp_het_homo_spreadsheet(genePop_file_address, pipeline_directory):
+    linelist=open(genePop_file_address).readlines()
+    #print type(linelist)
+    #print linelist
+    #print "module 1 entered"
+    good_data=[]
+    locus_names=[]
+    parsing = False
+    new=[]
+    regex_query=re.compile('Locus:\s\w+-*\w*')
+
+    ##get a list of locus names##
+    for line in linelist:
+            if "Locus" in line:
+                    #print "this line",line
+                    locus_names.append(re.search(regex_query,line).group())
+    #print "after regex", locus_names
+    #for line in locus_names:
+#            line.split('Locus:')
+#    for line in locus_names:
+ #           new.append(line.replace('\n',''))
+#    locus_names=[]
+#    for line in new:
+#            locus_names.append(line.replace('Pop: 652',''))
+#    new=[]
+    for line in locus_names:
+            new.append(line.replace('Locus:',''))
+    locus_names=remove_spaces_from_list_recursive(new)
+
+    locus_names=uniques(locus_names)
+    
+    ##isolate the four expected number of lines##
+    for line in linelist:
+            if line.startswith("    Expected number of homozygotes"):
+                good_data.append(line.replace('\n',''))
+            elif line.startswith("    Observed number of homozygotes"):
+                good_data.append(line.replace('\n',''))
+            elif line.startswith("    Expected number of heterozygotes"):
+                good_data.append(line.replace('\n',''))
+            elif line.startswith("    Observed number of heterozygotes"):
+                good_data.append(line.replace('\n',''))
+    #print "good_data obs het homo", good_data
+
+    ##split the data by the colon##
+    for i, entry in enumerate(good_data):
+            good_data[i]=entry.split(':')
+    #print "here we are",good_data
+
+    ##remove spaces from good_data##
+    good_data=remove_spaces_from_list_recursive(good_data)
+    #print "good_data",good_data
+
+    ##go through the good_data, four elements at a time, calculate H exp and Hobs, remove the four elements, and repeat for each entry in locus list##
+    good_data_copy=copy.deepcopy(good_data)
+    #print "perhaps locus_names has changed?", locus_names
+
+    ##make each item in locus_names a list##
+    locus_names=[[x]for x in locus_names]
+    
+    for locus in locus_names:
+            #print "locus", locus
+            #print "float(good_data_copy[3][1])", float(good_data_copy[3][1])
+            #print "float(good_data_copy[1][1])", float(good_data_copy[1][1])
+            H_obs=float(good_data_copy[3][1])/(float(good_data_copy[1][1])+float(good_data_copy[3][1]))
+            #print "H_obs", H_obs
+            locus.append(H_obs)
+            #print "float(good_data_copy[2][1])", float(good_data_copy[2][1])
+            #print "float(good_data_copy[0][1])", float(good_data_copy[0][1])
+            H_exp=float(good_data_copy[2][1])/(float(good_data_copy[2][1])+float(good_data_copy[0][1]))
+            #print "H_exp",H_exp
+            locus.append(H_exp)
+            del good_data_copy[0]
+            del good_data_copy[0]
+            del good_data_copy[0]
+            del good_data_copy[0]
+            #print len(good_data_copy)
+    #print "new locus_names", locus_names
+    locus_names.insert(0,['Locus','H_obs','H_exp'])
+    #print "locus_names", locus_names
+    saveCsv(locus_names,'H_obs_and_H_exp.csv',pipeline_directory)
+
+#######################################
+##convert GenePop input to rmes input##
+#######################################
+
+def convert_to_g2 (pipeline_directory, keeplist_address):
+        #this script will take a file in GenePop format and will convert it into a file that is ready to be submitted as RMES input (with the possible exception of having to deal with mac vs pc issues, and perhaps a space at the end)
+
+        #Assumptions: each row is the same length
+
+        #get the GenePop text file, and convert it to csv format
+        address=pipeline_directory+'final_output_GenePop.txt'
+        txt_to_csv(address)
+        data=readCsv_input(address+'_csv_converted.csv')
+        #print "data", data
+
+
+        #extract the important parameters of the GenePop file. Attempting to generalize to GenePop files with more than one population
+        number_of_populations=data.count(['POP'])+data.count(['Pop'])+data.count(['pop'])+data.count([['POP']])+data.count([['Pop']])+data.count([['pop']])
+        print "number of populations", number_of_populations
+
+        #now get a list of population names. This is only complicated because there could be more than one, and it's hard to distinguish them in a list
+        #assumes that the GenePop file has more than one population name if it has more than one population. This seems not to be the case, but RMES suggests that there might. I'll create a way to manually add more population names (may not be useful). There is potential that this will just create a list of the same population name over and over again. If there is an error here and it is actually a problem for your dataset, please email mark.aaron.fisher@gmail.com
+        population_names=[]
+        keeplist=readCsv_input(keeplist_address)
+        #print "keeplist", keeplist
+        #When you made the GenePop conversion module, you changed some the locus names to avoid having spaces in them. You replaced them with underscores. Here, you'll put the spaces back where the underscores are. *This is why your locus names can't have underscores already!*
+        keeplist_without_spaces=keeplist
+        for x in range(0, len(keeplist_without_spaces)):
+            #print "before replace",keeplist_without_spaces[x][0]
+            keeplist_without_spaces[x][0]=keeplist_without_spaces[x][0].replace(' ', '_')
+            #print "after replace", keeplist_without_spaces[x][0]
+        #print "keeplist_without_spaces", keeplist_without_spaces
+        #still getting population names...
+        name_counter=0
+        for x in range (0,number_of_populations):
+            #print "x", x
+            for y in range (0, len(data)):
+                data=readCsv_input(address+'_csv_converted.csv')
+                #print data[y]
+                #print type(data[y])
+                if (len(data[y])>0):                        
+                        if (([data[y][0]] not in keeplist) and ([data[y][0]] not in keeplist_without_spaces) and (data[y][0] not in ('POP', 'Pop', 'pop', ['POP'], ['Pop'], ['pop'])) and (name_counter<x+1)): #the name_counter here tracks whether the potential population name occurs before the word 'POP' in this particular instance of finding a population name. In other words, it ensures that population_name.append() only happens once per loop. This avoids lines with genotypes or locus names being reported as population names
+                                population_names.append(data[y][0])
+                                name_counter+=1
+#        print "These are what I have as your population names:", population_names
+#        done=raw_input("Is that all of them? y/n")
+#        while done != ('y' or 'yes'):
+#            new_pop_name=raw_input("Please enter the next population name.")
+#            population_names.append(new_pop_name)
+#            done=raw_input("Is that all of them? y/n")
+        print "Population Name:", population_names
+
+
+        #now, start to split the genotype strings and convert them to 1 for het, 0 for homo, -99 for missing score
+        for y in range (0, len(data)):
+            #print "y in split module", y
+            if (len(data[y])>0):
+                if ([data[y][0]] not in keeplist and ([data[y][0]] not in keeplist_without_spaces) and (data[y][0] not in population_names) and (data[y][0] not in ('POP', 'Pop', 'pop', ['POP'], ['Pop'], ['pop']))):
+                    #print "data[",y,"][0]",data[y][0]
+                    data[y][0]=data[y][0].split(' ')
+                    #print "before", data[y][0]
+                    for z in range (1, len(data[y][0])):
+                        data[y][0][z]=assign_zygosity(data[y][0][z])
+                    #print "after zygosity assignment", data[y][0]
+            
+
+        #print "data at this point", data
+
+        #create a csv file that contains ids, then each locus and the genotype at that locus for each sample as either 1, 0, or NA
+        hets_and_homos_cleanup(copy.deepcopy(data), population_names, pipeline_directory) #this takes data at this point and converts it into a csv file that can later be used for calculate_MLH. It's a completely internal module.
+
+        #create a csv file that contains ids in one column, and MLH in the other
+        calculate_MLH(readCsv_input(pipeline_directory+'heterozygotes_and_homozygotes.csv'), pipeline_directory)
+
+        
+        #get the number of loci and the number of samples in each population
+        number_loci=[]
+        sample_number_counter=[]
+
+        for x in range (0, number_of_populations):
+            POP_counter=0
+            #print "x",x    
+            for y in range (0, len(data)):
+                #print "y", y
+                #print "POP_counter at this point", POP_counter
+                if (POP_counter==0 and ([data[y][0]] in keeplist or [data[y][0]] in keeplist_without_spaces)):
+                    if (len(number_loci)<x+1):
+                        number_loci.append(1)
+                        #print "made a new locus element"
+                    else:
+                        number_loci[x]=number_loci[x]+1
+                        #print "added a new locus to the current population"
+                if (POP_counter==x+1 and ([data[y][0]] not in keeplist and [data[y][0]] not in keeplist_without_spaces) and (data[y][0] not in ('POP', 'Pop', 'pop', ['POP'], ['Pop'], ['pop'])) and (data[y][0] not in population_names)):
+                     if (len(sample_number_counter)<x+1):
+                        sample_number_counter.append(1)
+                        #print "made a new sample number element"
+                     else:
+                         #print sample_number_counter[x]
+                         sample_number_counter[x]=sample_number_counter[x]+1
+                         #print "added a new sample to the current population"
+                if (data[y][0] in ('POP', 'Pop', 'pop', ['POP'], ['Pop'], ['pop'])):
+                    #print "POP_counter gets added to"
+                    POP_counter+=1
+        
+        #now create the output file
+        #print "data", data       
+        output_name=pipeline_directory+'RMES_ready.txt'
+        saveFile=open(output_name,'w')
+        saveFile.write(str(number_of_populations))
+        saveFile.write('\n')
+        for x in range (0, number_of_populations):
+            #print "x",x
+            saveFile.write(population_names[x])
+            saveFile.write('\n')
+            #print sample_number_counter[x]
+            #print "type that above is", type(sample_number_counter[x])
+            saveFile.write(str(sample_number_counter[x]))
+            saveFile.write('\n')
+            saveFile.write(str(number_loci[x]))
+            saveFile.write('\n')
+        for y in range (0, len(data)):
+            #print "y",y
+            if (data[y][0] not in keeplist and data[y][0] not in keeplist_without_spaces and data[y][0] not in population_names and data[y][0] not in ('POP', 'Pop', 'pop', ['POP'], ['Pop'], ['pop']) and [data[y][0]] not in keeplist and [data[y][0]] not in keeplist_without_spaces and [data[y][0]] not in population_names and [data[y][0]] not in ('POP', 'Pop', 'pop', ['POP'], ['Pop'], ['pop'])):
+                #print "data[",y,"][0]", data[y][0]
+                #print "type", type(data[y][0])
+                if len(data[y][0])>1:
+                    for z in range (1, len(data[y][0])):
+                        #print "data[",y,"][0][",z,"]", data[y][0][z]
+                        saveFile.write(str(data[y][0][z])+' ')
+                    saveFile.write('\n')                               
+                else:
+                    #print "this is your list that should be a string:", data[y][0][0]
+                    saveFile.write(data[y][0][0])
+                    saveFile.write('\n')
+        saveFile.close()
+
+        ##get rid of spaces at the end of the file
+        spacey=open(output_name,'r')
+        spacey_contents=spacey.readlines()
+        spacey.close()
+        t=spacey_contents[len(spacey_contents)-1]
+        t=t[:-1]
+        t=t[:-1] #I think there are two spaces right now
+        #print t
+        spacey_contents[len(spacey_contents)-1]=t
+        ##temp
+        non_space=spacey_contents
+        #non_space=spacey_contents[:-1]
+
+#        non_space=[]
+#        for line in spacey_contents:
+#                print "line", line
+#                line_copy=copy.deepcopy(line)
+#                line_copy.replace(" ","")
+#                if len (line_copy)<1:
+#                        print "this happens"
+#                        continue
+#                else:
+#                        non_space.append(line)
+        save2=open(output_name,'w')
+        for line in non_space:
+                save2.write(line)
+        save2.close()
+        print "Your GenePop file has been converted to an RMES-ready file called, ",output_name
+
+######################################################################
+##convert final_output.csv to a directory of gephast-formatted files##
+######################################################################
+
+def generate_gephast_files(fitness_file_address, genotype_file_address, directory_address, rejected_samples_address):
+        
+        try:
+                os.mkdir(directory_address+'GEPHAST_ready/')
+        except:
+                pass
+        exceptions=readCsv_input(rejected_samples_address)
+
+        ##for every column but the first (IDs) in the fitness data file
+        fitness_data=readCsv_input(fitness_file_address)
+        fitness_transposed=transposed(fitness_data)
+        #del fitness_transposed[0] ##don't do that just yet
+        #print "fitness_transposed", fitness_transposed
+        for column in fitness_transposed:
+                #print "column", column
+                make_gephast_file([[fitness_transposed[0][x],column[x]] for x in range(0,len(fitness_transposed[0]))],genotype_file_address, directory_address+'GEPHAST_ready/', exceptions)
+        
+def gephast_process_p_vals(directory, pipeline_directory):
+        file_names=[x for x in os.listdir(directory) if '.csv' in x]
+        #print "file_names", file_names
+
+        new_table=[]
+        for f in file_names:
+                data=readCsv_input(directory+f)
+                #print data
+                new_table.append(uniques(data[0][1:len(data[0])]))
+                for row in data:
+                    if row[0]=='':
+                        if not is_row_of_blanks(row):               
+                            #print "row", row
+                            new_row=[]
+                            new_row=[x for x in row if x!='']
+                            #print "new_row", new_row
+                            new_row.insert(0,'')
+                            #print "new_row", new_row
+                            #new_row.insert(0,'')
+                            new_table.append(new_row)
+        #print "new_table", new_table
+#        saveCsv(new_table,'gephast_pvals.csv',pipeline_directory)
+
+        ##get the header of the master file
+        master_table=[]
+        master_header=[]
+        for row in new_table:
+            if row[0]!='':
+                    master_header.append(row[0])
+        #print "Master_header", master_header                    
+
+        ##for every item besides the first in row in new_table where the first entry is not '', append to it the float version of the element in the next row /100
+        for i, row in enumerate(new_table):
+                if row[0]!='':
+                        for index,entry in enumerate(row):
+                                if index==0:
+                                        master_table.append([entry])
+                                if index!=0:
+                                        master_table.append([entry,float(new_table[i+1][index])/100])
+        #print "master_table", master_table
+
+        ##now, you have a list of lists, such that each trait name is an element (i.e. list of len 1) followed by each locus gephasted for that trait with pvalue (lists of len 2), followed by the next trait name...                
+        ##make it so that each list in new_master is a list of trait name followed by each locus and pvalue (i.e., separate the trait-plus-locus/pvalues into separate lists)
+        new_master=[]
+        count=1
+        for row in master_table:
+                #print "row", row
+                if len(row)==1:
+                        new_master.append([[row[0],'pval'+str(count)]])
+                        count+=1
+                else:
+                        new_master[len(new_master)-1].append(row)
+        #print "new_master", new_master
+
+        #for row 
+        nm_trans=transposed(new_master)
+        #print "nm_trans", nm_trans
+        #saveCsv_v2(nm_trans,'gephast_pre_process_text.csv',pipeline_directory)
+        nm_take_out=[]
+        temp=[]
+        for row in nm_trans:
+                #print "row", row
+                temp=list_of_lists_to_list(row)
+                #print "temp", temp[0]
+                nm_take_out.append(temp)
+                temp=[]
+        #print nm_take_out
+        saveCsv_v2(nm_take_out,'gephast_pvals.csv',pipeline_directory)
+        #print test
+
+        ##and now create p-adjusted columns
+        r=R(use_numpy=True)
+        r.pipel_directory=pipeline_directory
+
+        print r("data<-read.csv(paste(pipel_directory,'gephast_pvals.csv',sep=''), header=T)")
+        print r("sub1<-data[c(F,T)]")
+        print r("sub2<-data[c(T,F)]")
+        longCMD="""
+
+        for (i in 1:ncol(sub1)){
+        	sub1[,i]=p.adjust(sub1[,i],'BH')
+        }
+        """
+        print r(longCMD)
+        print r("data[c(F,T)]<-sub1")
+        print r("write.csv(data,file=paste(pipel_directory,'gephast_p_adjusted.csv',sep=''))")
+
+######################################                
+##convert GenePop input to rhh input##
+######################################
+
+def genePop_to_rhh(pipeline_directory, rejected_samples_address):
+        data=readCsv_input(pipeline_directory+'final_output_GenePop.txt')
+        #print "data", data
+
+        if (['POP'] in data):
+                top=data.index(['POP'])+1
+        else:
+                if (['Pop'] in data):
+                        top=data.index(['Pop'])+1
+                else:
+                        if (['pop'] in data):
+                                top=data.index(['pop'])+1
+                        
+        #print "top", top
+        data_trimmed=data[top:len(data)]
+        #print "data_trimmed off top", data_trimmed
+        #print data_trimmed[0]
+
+        for x in range(0, len(data_trimmed)):
+            if (len(data_trimmed[x])>1):
+                #print type(data_trimmed[x][1])
+                data_trimmed[x][1]=data_trimmed[x][1].split()
+                #print "data[x] after splitting",data_trimmed[x][1]
+                for z in range (0, len(data_trimmed[x][1])):
+                    data_trimmed[x][1][z]=split(data_trimmed[x][1][z])
+                    #print "data[",x,"][", 1,"]", "[",z,"]"
+                #data_trimmed[x][1]=split(data_trimmed[x][y])
+
+        #print "data_trimmed",data_trimmed
+        for entry in data_trimmed:
+                for genotype in entry[1]:
+                        for i, allele in enumerate(genotype):
+                                #print allele
+                                if allele in ['00','000']:
+                                        genotype[i]='0'
+                                        #print genotype 
+
+        #print "data_trimmed", data_trimmed
+        #print type(data_trimmed)
+        
+        spaces_removed=remove_spaces_from_list_recursive(data_trimmed)
+        #print "spaces_removed", spaces_removed
+        rhh_output(data_trimmed, pipeline_directory)
+
+        print "genePop data has been converted to rhh format and is ready for the rhh script"
+
+###########
+##run rhh##
+###########
+
+def Incorporate_HL_from_rhh(pipeline_directory, address_of_acceptor_file):
+        #takes the rhh MLH output (ID, IR, SH, and HL columns), and converts it into a csv file on the desktop called csv_converted.csv
+        txt_to_csv(pipeline_directory+"Rhh_test_output.txt")
+
+
+        #makes said csv file the donor file
+        #print "the prompt you're about to get is for the donor file-which is the file that contains the ID, IR, SH, and HL columns from the rhh script. It might be this file: /Users/markfisher/Desktop/pipeline/Rhh_test_output.txt_csv_converted.csv"
+        donor=readCsv_input(pipeline_directory+'Rhh_test_output.txt_csv_converted.csv')
+        #print "donor",donor, "done now"
+        acceptor=readCsv_input(address_of_acceptor_file)
+        #print "acceptor", acceptor
+
+        acceptorTrans=transposed(acceptor)
+        #print "acceptorTrans", acceptorTrans
+
+        #print donor
+        tally=0
+        for i in range (1,len(donor)):
+            if donor[i][0] in acceptorTrans[0]:
+                tally+=1
+                acceptor[acceptorTrans[0].index(donor[i][0])].append(donor[i][1])
+                acceptor[acceptorTrans[0].index(donor[i][0])].append(donor[i][2])
+                acceptor[acceptorTrans[0].index(donor[i][0])].append(donor[i][3])
+        #print acceptor
+        #print "tally", tally
+
+        #add IR, SH, HL columns
+        acceptor[0].append('IR')
+        acceptor[0].append('SH')
+        acceptor[0].append('HL')
+        #print "acceptor before", acceptor
+        acceptor=fill_blanks_of_data_table(acceptor)
+        acceptor=make_sure_NA_are_numeric_compliant(acceptor)
+        acceptor=remove_spaces_from_header(acceptor)
+        saveCsv(acceptor,"MLH_output.csv", pipeline_directory)
+
+        print "IR, HL, and SH values have been incorporated into the fitness data file (called MLH_output.csv)"
+
+def Incorporate_MLH_into_everythingFile(pipeline_directory):
+        donor=readCsv_input(pipeline_directory+'MLH_calculated.csv')
+        #print "donor",donor, "done now"
+        acceptor=readCsv_input(pipeline_directory+'MLH_output.csv')
+        #print "acceptor", acceptor
+
+        acceptorTrans=transposed(acceptor)
+        #print "acceptorTrans", acceptorTrans
+
+        #print donor
+        tally=0
+        for i in range (1,len(donor)):
+            if donor[i][0] in acceptorTrans[0]:
+                tally+=1
+                acceptor[acceptorTrans[0].index(donor[i][0])].append(donor[i][1])#.replace(" ",'')
+                #acceptor[acceptorTrans[0].index(donor[i][0])].append(donor[i][2])
+                #acceptor[acceptorTrans[0].index(donor[i][0])].append(donor[i][3])
+        #print acceptor
+        #print "tally", tally
+
+        #add IR, SH, HL columns
+        acceptor[0].append('MLH')
+        #acceptor[0].append('SH')
+        #acceptor[0].append('HL')
+        #print "acceptor before", acceptor
+        acceptor=fill_blanks_of_data_table(acceptor)
+        acceptor=make_sure_NA_are_numeric_compliant(acceptor)
+        acceptor=remove_spaces_from_header(acceptor)
+        saveCsv(acceptor,"MLH_output.csv", pipeline_directory)
+
+        print "Now just plain MLH values have also been incorporated into the fitness data file (called MLH_output.csv)"
+
+
+def num_samples_per_locus (pipeline_directory):
+        data=readCsv_input(pipeline_directory+'heterozygotes_and_homozygotes.csv')
+        data2=copy.deepcopy(transposed(data))
+        del data2[0]
+        #print "data2", data2
+        final=[]
+        for row in data2:
+                count=0
+                for x in row[1:len(row)]:
+                        if x in ['1','0']:
+                                count+=1
+                final.append([row[0],count])
+        saveCsv(final, 'number_of_samples_per_locus.csv',pipeline_directory)
+        #print "final", final
+
+##############################
+##correlate the fitness data##
+##############################
+
+def Correlation_heat_map(pipeline_directory, rejected_samples_address): #data is a dataframe R object
+        try:
+                os.mkdir(pipeline_directory+'Correlations')
+        except:
+                pass
+        r=R(use_numpy=True)
+        print r("library(lattice)")
+        r.pipeline_dir=pipeline_directory
+        r.address_of_acceptor_file_r=pipeline_directory+'MLH_output.csv'
+        print r("data_for_cor<-read.csv(address_of_acceptor_file_r)")
+        r.rejected_path=rejected_samples_address
+        print r("rejected<-read.csv(rejected_path, header=F)")
+        print r("data_for_cor<-subset(data_for_cor, !(ID %in% rejected[,1]))") 
+
+        
+        #print r("print(data_for_cor)")
+        print r("just_nums<-sapply(data_for_cor,is.numeric)")
+        #print r("print(just_nums)")
+        print r("just_nums_data<-data_for_cor[,just_nums]")
+        #print r("print(just_nums_data)")
+        print r("cor2<-cor(just_nums_data[,2:length(just_nums_data)], use='pairwise')")
+        #print r("print(cor2)")
+        print r("rgb.palette <- colorRampPalette(c('blue', 'yellow', 'red'), space = 'rgb')")
+        CMDs1=["pdf(file=paste(paste(pipeline_dir,'Correlations/', sep=''), 'Heat_map.pdf',sep=''))", "levelplot(cor2, aspect='iso', scales=list(x=list(rot=90)), main='Correlation Of Fitness-Associated Triats', col.regions=rgb.palette(220), cuts=200, at=seq(-1,1,0.01))"]
+        print r(CMDs1)
+        print r("dev.off()")
+
+def all_correlations_and_pvalues(MLH_output_csv, save_directory, rejected_samples_address):
+        r=R(use_numpy=True)
+        r.fitness_directory=MLH_output_csv
+        r.save=save_directory
+        f1="""
+        cor.prob<-function (X, dfr=nrow(X)-2){
+	R<-cor(X, use="pairwise")
+	above<-row(R) < col(R)
+	r2<-R[above]^2
+	Fstat<-r2*dfr/(1-r2)
+	R[above]<-1-pf(Fstat,1,dfr)
+	R[row(R)==col(R)]<-NA
+	R
+        }
+        """
+        f2="""
+        cor.prob.spearman<-function (X, dfr=nrow(X)-2){
+	R<-cor(X, method='spearman', use="pairwise")
+	above<-row(R) < col(R)
+	r2<-R[above]^2
+	Fstat<-r2*dfr/(1-r2)
+	R[above]<-1-pf(Fstat,1,dfr)
+	R[row(R)==col(R)]<-NA
+	R
+        }
+        """
+        f3="""
+        flattenSquareMatrix<-function(m){
+	if((class(m) !='matrix')|(nrow(m) != ncol(m))) stop("Must be a square matrix.")
+	if(!identical(rownames(m), colnames(m))) stop("Row and column names must be equal.")
+	ut<-upper.tri(m)
+	data.frame(i=rownames(m)[row(m)[ut]],
+	j=rownames(m)[col(m)[ut]],
+	cor=t(m)[ut],
+	p=m[ut])
+        }
+        """
+        f4="""
+        cor.test.p <- function(x){
+            FUN <- function(x, y) cor.test(x, y)[[3]]
+            z <- outer(
+              colnames(x), 
+              colnames(x), 
+              Vectorize(function(i,j) FUN(x[,i], x[,j]))
+            )
+            dimnames(z) <- list(colnames(x), colnames(x))
+            z
+        }
+        """
+        f5="""
+        cor.test.p.s <- function(x){
+            FUN <- function(x, y) cor.test(x, y, method='spearman')[[3]]
+            z <- outer(
+              colnames(x), 
+              colnames(x), 
+              Vectorize(function(i,j) FUN(x[,i], x[,j]))
+            )
+            dimnames(z) <- list(colnames(x), colnames(x))
+            z
+        }
+        """
+ 
+        print(r(f1))
+        print(r(f2))
+        print(r(f3))
+        print(r(f4))
+        print r(f5)
+        print r("data_for_cor<-read.csv(fitness_directory, header=T)")#this could be a problem line
+        r.rejected_path=rejected_samples_address
+        print r("rejected<-read.csv(rejected_path, header=F)")
+        print r("data_for_cor<-subset(data_for_cor, !(ID %in% rejected[,1]))") 
+        print r("just_nums<-sapply(data_for_cor,is.numeric)")
+        print r("just_nums_data<-data_for_cor[,just_nums]")
+        #print r("print ('just_nums_data')")
+        #print r("print (just_nums_data)")
+        #print r("print (str(just_nums_data))")
+        print r("z<-cor.test.p(just_nums_data)")
+        print r("w<-cor.prob(just_nums_data)")
+        #print r("print(w)")
+        print r("x<-z")
+        print r("x[lower.tri(x)]<-w[lower.tri(w)]")
+        
+        print r("x<-flattenSquareMatrix(x)")
+        #print r("print(x)")
+        print r("x=data.frame(x,'pearson_adjusted_p'=p.adjust(x$p, 'BH'))")
+        print r("names(x)[3]<-'pearson_cor'")
+        print r("names(x)[4]<-'pearson_p'")
+
+
+        print r("a<-cor.test.p.s(just_nums_data)")
+        print r("b<-cor.prob.spearman(just_nums_data)")
+        print r("c<-a")
+        print r("c[lower.tri(c)]<-b[lower.tri(b)]")
+        print r("y<-flattenSquareMatrix(c)")
+        #print r("print(y)")
+        
+        #print r("y<-flattenSquareMatrix(cor.test.p.s(just_nums_data))")
+        print r("y=data.frame(y,'spearman_adjusted_p'=p.adjust(y$p, 'BH'))")
+        print r("names(y)[3]<-'spearman_cor'")
+        print r("names(y)[4]<-'spearman_p'")
+        print r("z<-x[,1:2]")
+        print r("z$pearson_corr<-x[,3]")
+        print r("z$spearman_corr<-y[,3]")
+        print r("z$pearson_p<-x[,4]")
+        print r("z$pearson_p_adjusted<-x[,5]")
+        print r("z$spearman_p<-y[,4]")
+        print r("z$spearman_p_adjusted<-y[,5]")
+        print r("write.csv(z,file=paste(save,'all_correlations.csv',sep=''))") #this could be a problem line
+
+def spearman_corr_chart(pipeline_directory, address_of_acceptor_file, rejected_samples_address):
+        r=R(use_numpy=True)
+        r.pipeline_dir=pipeline_directory
+        r.acceptr_address=address_of_acceptor_file
+        print r("library('PerformanceAnalytics')")
+        #print r("tmpstr <- deparse(chart.Correlation)")
+        cmd1="""
+	my.spearman.chart.correlation<-function (R, histogram = TRUE, ...){
+		x = checkData(R, method = "matrix")                                                   
+		panel.cor <- function(x, y, digits = 2, prefix = "", use = "pairwise.complete.obs", 	cex.cor.scale=1, cex.cor, ...) {
+			usr <- par("usr")                                                                 
+	    	on.exit(par(usr))                                                                   
+	    	par(usr = c(0, 1, 0, 1))                                                            
+	    	r <- (cor(x, y,method='spearman', use = use))                                                      
+		    txt <- format(c(r, 0.123456789), digits = digits)[1]                                
+		    txt <- paste(prefix, txt, sep = "")                                              
+		    if (missing(cex.cor)){
+		    	cex <- 0.8/strwidth(txt)
+		    }                                                                                                                                  
+		        test <- cor.test(x, y, method='spearman')                                                             
+		        Signif <- symnum(test$p.value, corr = FALSE, na = FALSE, cutpoints = c(0, 0.001, 0.01, 0.05, 0.1, 1), symbols = c("***", "**", "*", ".", " "))                                               
+		        text(0.5, 0.5, txt, cex = cex * r^cex.cor.scale)                                                  
+		        text(0.8, 0.8, Signif, cex = cex, col = 2)                                           
+		}                                                                                       
+		f <- function(t) {
+			dnorm(t, mean = mean(x), sd = sd.xts(x))                                            
+		}                                                                                       
+		hist.panel = function(x, ...) {
+			par(new = TRUE)                                                                     
+		    hist(x, col = "light gray", probability = TRUE, axes = FALSE, main = "", breaks = "FD")                                                   
+		    lines(density(x, na.rm = TRUE), col = "red", lwd = 1)                             
+		    rug(x)                                                                              
+		}                                                                                       
+		if (histogram){
+			pairs(x, gap = 0, lower.panel = panel.smooth, upper.panel = panel.cor, diag.panel = hist.panel, ...)
+		}                                                   
+		    else {
+		    	pairs(x, gap = 0, lower.panel = panel.smooth, upper.panel = panel.cor, ...)
+		    }                                                                                
+	} 
+        
+        """
+        print r(cmd1)
+#        print r("abscor<-grep('^ *r <- abs',tmpstr)")
+        #print r("(print(abscor))")
+        #print r(cmd2)
+#        print r("tmpstr[abscor]<-paste('r<-cor(x,y,method='spearman',use=use)')")
+        #print r("panelcorline <- grep('^ *panel.cor',tmpstr)")
+        #print r("tmpstr[panelcorline] <- paste(tmpstr[panelcorline],'cex.cor.scale=1,')")
+        #print r("rscaleline <- grep('^ *text\\(0.5',tmpstr)")
+        #print r("tmpstr[rscaleline] <- gsub('cex \\* r','cex*r^cex.cor.scale',tmpstr[rscaleline])")
+        #print r("spearman.chart.Correlation <- eval(parse(text=tmpstr))")
+        print r("data_for_cor<-read.csv(paste(acceptr_address), header=T)")
+        r.rejected_path=rejected_samples_address
+        print r("rejected<-read.csv(rejected_path, header=F)")
+        print r("data_for_cor<-subset(data_for_cor, !(ID %in% rejected[,1]))") 
+        print r("data_for_cor<-data_for_cor[,2:ncol(data_for_cor)]")#gets rid of ID column
+        print r("just_nums<-sapply(data_for_cor,is.numeric)")
+        #print r("print(just_nums)")
+        print r("just_nums_data<-data_for_cor[,just_nums]")
+        print r("library(PerformanceAnalytics)")
+        print r("pdf(paste(pipeline_dir,'Correlations/corr_chart_spearman.pdf',sep=''))")
+        print r("my.spearman.chart.correlation(just_nums_data, histogram=TRUE, pch='+', cex.cor.scale=0, cex.labels=0.2)")
+        print r("dev.off()")
+
+
+
+def pearson_corr_chart(pipeline_directory, address_of_acceptor_file, rejected_samples_address):
+        r=R(use_numpy=True)
+        r.pipeline_dir=pipeline_directory
+        r.acceptr_address=address_of_acceptor_file
+        print r("library('PerformanceAnalytics')")
+        cmd1="""
+	my.pearson.chart.correlation<-function (R, histogram = TRUE, ...)
+	{
+		x = checkData(R, method = "matrix")                                                   
+		panel.cor <- function(x, y, digits = 2, prefix = "", use = "pairwise.complete.obs", 	cex.cor.scale=1, cex.cor, ...) {
+			usr <- par("usr")                                                                 
+	    	on.exit(par(usr))                                                                   
+	    	par(usr = c(0, 1, 0, 1))                                                            
+	    	r <- (cor(x, y, use = use))                                                      
+		    txt <- format(c(r, 0.123456789), digits = digits)[1]                                
+		    txt <- paste(prefix, txt, sep = "")                                              
+		    if (missing(cex.cor)){
+		    	cex <- 0.8/strwidth(txt)
+		    }                                                                                                                                  
+		        test <- cor.test(x, y)                                                             
+		        Signif <- symnum(test$p.value, corr = FALSE, na = FALSE, cutpoints = c(0, 0.001, 0.01, 0.05, 0.1, 1), symbols = c("***", "**", "*", ".", " "))                                               
+		        text(0.5, 0.5, txt, cex = cex * r^cex.cor.scale)                                                  
+		        text(0.8, 0.8, Signif, cex = cex, col = 2)                                           
+		}                                                                                       
+		f <- function(t) {
+			dnorm(t, mean = mean(x), sd = sd.xts(x))                                            
+		}                                                                                       
+		hist.panel = function(x, ...) {
+			par(new = TRUE)                                                                     
+		    hist(x, col = "light gray", probability = TRUE, axes = FALSE, main = "", breaks = "FD")                                                   
+		    lines(density(x, na.rm = TRUE), col = "red", lwd = 1)                             
+		    rug(x)                                                                              
+		}                                                                                       
+		if (histogram){
+			pairs(x, gap = 0, lower.panel = panel.smooth, upper.panel = panel.cor, diag.panel = hist.panel, ...)
+		}                                                   
+		    else {
+		    	pairs(x, gap = 0, lower.panel = panel.smooth, upper.panel = panel.cor, ...)
+		    }                                                                                
+	} 
+        
+        """
+        print r(cmd1)
+        print r("data_for_cor<-read.csv(paste(acceptr_address), header=T)")
+        r.rejected_path=rejected_samples_address
+        print r("rejected<-read.csv(rejected_path, header=F)")
+        print r("data_for_cor<-subset(data_for_cor, !(ID %in% rejected[,1]))") 
+        print r("data_for_cor<-data_for_cor[,2:ncol(data_for_cor)]")#gets rid of ID column
+        print r("just_nums<-sapply(data_for_cor,is.numeric)")
+        #print r("names(just_nums)")
+        print r("just_nums_data<-data_for_cor[,just_nums]")
+        print r("library(PerformanceAnalytics)")
+        print r("pdf(paste(pipeline_dir,'Correlations/corr_chart_pearson.pdf',sep=''))")
+        print r("my.pearson.chart.correlation(just_nums_data, histogram=TRUE, pch='+', cex.cor.scale=0, cex.labels=0.2)")
+        print r("dev.off()")
+
+
+def homemade_correlation_matrix_pearson_adjusted(pipeline_directory):
+        print "pearson adjusted entered"
+        data=readCsv_input(pipeline_directory+'Correlations/all_correlations.csv')
+        trans=transposed(data)
+        culled=[x for x in trans if x[0] in ['i', 'j', 'pearson_p_adjusted', 'pearson_corr']]
+        traits=uniques([x for x in culled[0] if x not in ['i', 'ID']])
+        #doesn't capture the one trait that's only in the j column, in our case usually 'MLH'
+        more_traits=uniques([x for x in culled[1] if x not in ['j','ID']])
+        #print "more traits", more_traits
+        #combine uniques of traits and more_traits
+        for i in more_traits:
+                if i not in traits:
+                        traits.append(i)
+                
+        #print "new traits", traits
+        
+
+        ##create the table
+        a=[[""]*i + [x]+[""]*(len(traits)-i-1) for i,x in enumerate(traits)]
+        
+        ##put the correlation coefficient in the upper diagonal and the significance in the lower diagonal
+        cols=copy.deepcopy(culled)
+        rows=copy.deepcopy(transposed(cols))
+        row_dest=-1
+        col_dest=-1
+        for row in rows[1:]:
+                for i,r in enumerate(a):
+                        #print "row[0]", row[0]
+                        #print "row[1]", row[1]
+                        #print "r", r
+                        if row[0] in r:
+                                #print "this happens 1"
+                                row_dest=i
+                                #print "row_dest"
+                        if row[1] in r:
+                                #print "this happens 2"
+                                col_dest=i
+                        if row_dest>=0 and col_dest >=0:
+                                #print "this happens 3"
+                                a[row_dest][col_dest]=row[2]
+                                a[col_dest][row_dest]=row[3]
+                row_dest=-1
+                col_dest=-1
+        #print "a after", a
+        saveCsv(a, 'correlation_chart_pearson_adjusted.csv', pipeline_directory+'Correlations/')                                                
+
+
+def homemade_correlation_matrix_spearman_adjusted(pipeline_directory):
+        print "spearman adjusted entered"
+        data=readCsv_input(pipeline_directory+'Correlations/all_correlations.csv')
+        trans=transposed(data)
+        culled=[x for x in trans if x[0] in ['i', 'j', 'spearman_p_adjusted', 'spearman_corr']]
+        traits=uniques([x for x in culled[0] if x not in ['i', 'ID']])
+        #doesn't capture the one trait that's only in the j column, in our case usually 'MLH'
+        more_traits=uniques([x for x in culled[1] if x not in ['j','ID']])
+        #print "more traits", more_traits
+        #combine uniques of traits and more_traits
+        for i in more_traits:
+                if i not in traits:
+                        traits.append(i)
+                
+        #print "new traits", traits
+
+
+        ##create the table
+        a=[[""]*i + [x]+[""]*(len(traits)-i-1) for i,x in enumerate(traits)]
+        
+        ##put the correlation coefficient in the upper diagonal and the significance in the lower diagonal
+        cols=copy.deepcopy(culled)
+        rows=copy.deepcopy(transposed(cols))
+        row_dest=-1
+        col_dest=-1
+        for row in rows[1:]:
+                for i,r in enumerate(a):
+                        #print "row[0]", row[0]
+                        #print "row[1]", row[1]
+                        #print "r", r
+                        if row[0] in r:
+                                #print "this happens 1"
+                                row_dest=i
+                                #print "row_dest"
+                        if row[1] in r:
+                                #print "this happens 2"
+                                col_dest=i
+                        if row_dest>=0 and col_dest >=0:
+                                #print "this happens 3"
+                                a[row_dest][col_dest]=row[2]
+                                a[col_dest][row_dest]=row[3]
+                row_dest=-1
+                col_dest=-1
+        #print "a after", a
+        saveCsv(a, 'correlation_chart_spearman_adjusted.csv', pipeline_directory+'Correlations/')
+
+def homemade_correlation_matrix_pearson(pipeline_directory):
+        print "pearson entered"
+        data=readCsv_input(pipeline_directory+'Correlations/all_correlations.csv')
+        trans=transposed(data)
+        culled=[x for x in trans if x[0] in ['i', 'j', 'pearson_p', 'pearson_corr'] and x[0] not in ['pearson_p_adjusted']]
+        traits=uniques([x for x in culled[0] if x not in ['i', 'ID']])
+        #doesn't capture the one trait that's only in the j column, in our case usually 'MLH'
+        more_traits=uniques([x for x in culled[1] if x not in ['j','ID']])
+        #print "more traits", more_traits
+        #combine uniques of traits and more_traits
+        for i in more_traits:
+                if i not in traits:
+                        traits.append(i)
+                
+        #print "new traits", traits
+
+
+        ##create the table
+        a=[[""]*i + [x]+[""]*(len(traits)-i-1) for i,x in enumerate(traits)]
+        
+        ##put the correlation coefficient in the upper diagonal and the significance in the lower diagonal
+        cols=copy.deepcopy(culled)
+        rows=copy.deepcopy(transposed(cols))
+        row_dest=-1
+        col_dest=-1
+        for row in rows[1:]:
+                for i,r in enumerate(a):
+                        #print "row[0]", row[0]
+                        #print "row[1]", row[1]
+                        #print "r", r
+                        if row[0] in r:
+                                #print "this happens 1"
+                                row_dest=i
+                                #print "row_dest"
+                        if row[1] in r:
+                                #print "this happens 2"
+                                col_dest=i
+                        if row_dest>=0 and col_dest >=0:
+                                #print "this happens 3"
+                                a[row_dest][col_dest]=row[2]
+                                a[col_dest][row_dest]=row[3]
+                row_dest=-1
+                col_dest=-1
+        #print "a after", a
+        saveCsv(a, 'correlation_chart_pearson.csv', pipeline_directory+'Correlations/')                                                
+
+
+def homemade_correlation_matrix_spearman(pipeline_directory):
+        print "spearman entered"
+        data=readCsv_input(pipeline_directory+'Correlations/all_correlations.csv')
+        trans=transposed(data)
+        culled=[x for x in trans if x[0] in ['i', 'j', 'spearman_p', 'spearman_corr'] and x[0] not in ['spearman_p_adjusted']]
+        traits=uniques([x for x in culled[0] if x not in ['i', 'ID']])
+        #doesn't capture the one trait that's only in the j column, in our case usually 'MLH'
+        more_traits=uniques([x for x in culled[1] if x not in ['j','ID']])
+        #print "more traits", more_traits
+        #combine uniques of traits and more_traits
+        for i in more_traits:
+                if i not in traits:
+                        traits.append(i)
+                
+        #print "new traits", traits
+
+
+        ##create the table
+        a=[[""]*i + [x]+[""]*(len(traits)-i-1) for i,x in enumerate(traits)]
+        
+        ##put the correlation coefficient in the upper diagonal and the significance in the lower diagonal
+        cols=copy.deepcopy(culled)
+        rows=copy.deepcopy(transposed(cols))
+        row_dest=-1
+        col_dest=-1
+        for row in rows[1:]:
+                for i,r in enumerate(a):
+                        #print "row[0]", row[0]
+                        #print "row[1]", row[1]
+                        #print "r", r
+                        if row[0] in r:
+                                #print "this happens 1"
+                                row_dest=i
+                                #print "row_dest"
+                        if row[1] in r:
+                                #print "this happens 2"
+                                col_dest=i
+                        if row_dest>=0 and col_dest >=0:
+                                #print "this happens 3"
+                                a[row_dest][col_dest]=row[2]
+                                a[col_dest][row_dest]=row[3]
+                row_dest=-1
+                col_dest=-1
+        #print "a after", a
+        saveCsv(a, 'correlation_chart_spearman.csv', pipeline_directory+'Correlations/')
+
+def fdr_cutoffs(pipeline_directory):
+        r=R(use_numpy=True)
+        funct="""
+        fdr<-function(alpha,p.vector){
+        k<-length(p.vector)
+        pval.sort<-sort(p.vector)
+        rank<-1:k
+        fdr.rank<-alpha*rank/k
+        pval.test<-(pval.sort<fdr.rank)
+        cutoff<-max(pval.sort[pval.test])
+        print (cutoff)
+        return(cutoff)
+        }
+        """
+        print (r(funct))
+        cmds=["data<-read.csv('/Users/mf/Desktop/pipeline/Correlations/all_correlations.csv')", "sink(file='/Users/mf/Desktop/pipeline/Correlations/fdr_cutoffs.txt')","print('fdr(0.05,na.omit(data$pearson_p)):')", "fdr(0.05,na.omit(data$pearson_p))", "print('fdr(0.05,na.omit(data$spearman_p)):')", "fdr(0.05,na.omit(data$spearman_p))", "sink()"]
+        print (r(cmds))
+
+#######################
+##run slh f-raio test##
+#######################
+
+def combine_het_homo_and_fitness_scores(address_of_het_homo, address_of_fitness, pipeline_directory):
+ #       het_homo=readCsv_input(address_of_het_homo)
+#        fitness=readCsv_input(address_of_fitness)
+        incorporate_donor_into_acceptor(address_of_het_homo, address_of_fitness,pipeline_directory+'genotype_fitness_combined_for_slh_test.txt')
+
+        #retrieve that text file
+        lines=open(pipeline_directory+'genotype_fitness_combined_for_slh_test.txt').readlines()
+        #print lines[0]
+        new_lines=[]
+
+        #make it into a csv file
+        for line in copy.deepcopy(lines):
+                #print "line before", line
+                line=line.replace("'","")
+                #print "line after", line
+                line=line.replace("[","")
+                line=line.replace("]","")
+                line=line.replace("\n","")
+                #print line
+                new_lines.append(line)
+                
+        #print "before split", new_lines
+        new_lines=[x.split(',') for x in new_lines]
+        #print "after split", new_lines
+        new_lines=remove_spaces_from_header(new_lines)
+        all_spaces_removed=remove_spaces_from_all_entries(new_lines)
+        saveCsv(all_spaces_removed, 'genotype_fitness_combine_for_slh_test_as_spreadsheet.csv',pipeline_directory)
+
+def run_model_comparison(csv_address, keeplist_address, pipeline_directory):
+        #exceptions=readCsv_input(rejected_samples_address)
+        try:
+                os.mkdir(pipeline_directory+'Single_Locus_Effects_Test')
+        except:
+                pass
+
+        r=R(use_numpy=True)
+
+        print r("library(pgirmess)")
+        print r("library(MASS)")
+        
+        #convert NAs in locus-containing columns into averages
+
+        keeplist=readCsv_input(keeplist_address)
+        #print "keeplist", keeplist
+        keeplist_as_list_of_strings=[x[0].replace(' ','_') for x in keeplist]
+        #print "keeplist_as_list_of_strings", keeplist_as_list_of_strings
+        keeplist_as_list_of_strings=[x.replace('-','_') for x in keeplist_as_list_of_strings]
+        #re.sub(r'(\w)-(\w)', lambda m: '_' (m.groups()), x)
+        #print "keeplist_as_list_of_strings", keeplist_as_list_of_strings
+
+        master_file=readCsv_input(csv_address)
+        master_file=remove_spaces_from_all_entries(master_file)
+        #master_file=remove_spaces_from_header(master_file)
+        #print "master_file", master_file
+#        temp_header_1=master_file[0]
+#        master_file=[x for x in master_file[1:] if x[0] not in exceptions]
+#        master_file.insert(0,temp_header_1)
+        #print "master_file", master_file
+        master_trans=transposed(copy.deepcopy(master_file))
+        #print "master_trans", master_trans
+        #print "locus names:\n"
+        for x in master_trans:
+                #print "x[0] before", x[0]
+                x[0]=replace_internal_space(x[0])
+                #print "x[0] after internal space replace", x[0]
+                x[0]=x[0].replace('-','_')
+                x[0]=x[0].replace(" ", "")
+                #print "x[0] after both", x[0]
+        #print "master_trans", master_trans
+        just_loci=[x for x in master_trans if x[0].replace(' ','') in keeplist_as_list_of_strings]
+        just_fitness=[x for x in master_trans if x[0].replace(' ','') not in keeplist_as_list_of_strings]
+        just_fitness_names=[x[0] for x in just_fitness]
+        #print "just_fitness", just_fitness
+        #print "just_loci", just_loci
+        #print "just_fitness_names", just_fitness_names
+        #print "just_fitness_names", just_fitness_names
+        NAs_filled=[score_NAs(row) for row in just_loci]
+        #print "NAs_filled", NAs_filled
+        #NAs_filled_flipped_back=transposed(NAs_filled)
+        #print NAs_filled_flipped_back
+        #saveCsv(NAs_filled_flipped_back, 'hets_and_homos_with_NAs_filled_as_means.csv', pipeline_directory)
+
+        #now replace the unfilled columns of master_file_trans with the corresponding filled ones of NAs_filled
+        for i, row in enumerate(NAs_filled):
+                for index, x in enumerate(master_trans):
+                        ####print "row[0]", row[0], "x[0]", x[0]
+                        if x[0]==row[0]:
+                                master_trans[index]=NAs_filled[i]
+        ready_for_comparison=transposed(master_trans)
+        #print "ready_for_comparison", ready_for_comparison
+        saveCsv(ready_for_comparison, 'fitness_and_loci_combined.csv',pipeline_directory+'Single_Locus_Effects_Test/')
+
+        
+        #the R function:
+        funct="""
+        comparemodels <- function(data, response, terms1, terms2, family = 'gaussian', ...) {
+        if (family=='gaussian'){
+                test='F'
+        } else{
+                test='Chisq'
+                #I'm actually not sure what sort of test (LRT, Rao, etc.) is appropriate in each case.This if/else chain can easily be expanded, though
+        }
+	sink(file=paste(paste("Multiple_regression_vs_single_regression_",response, sep=''), ".txt", sep=''))
+        f1 <- reformulate(terms1, response)
+        f2 <- reformulate(terms2, response)
+        m1 <- glm(f1, data = data, family = family)
+        m2 <- glm(f2, data = data, family = family)
+        compare <- anova(m1, m2, test = test)
+        print(compare)
+	sink()
+	tiff(filename=paste(paste("Multiple_regression_",response, sep=''), ".tiff", sep=''))
+	layout(matrix(c(1,2,3,4),2,2))
+	plot(m1)
+	dev.off()
+	tiff(filename=paste(paste("Single_regression_",response, sep=''), ".tiff", sep=''))
+	layout(matrix(c(1,2,3,4),2,2))
+	plot(m2)
+	dev.off()	
+        }
+        """
+
+
+#	print (mod_test$Deviance[2])
+#	print (mod_test$Df[2])
+#	print (pchisq(abs(mod_test$Deviance[2]),abs(mod_test$Df[2])))
+
+
+        print (r(funct))
+
+        #implementing all of these preparations
+        print "You're about to run a test that determines whether a there is evidence for a single locus effect on a particular fitness-associated trait.print. The traits:", just_fitness_names
+
+ 
+
+        #get a list of all of the fitness traits from the user that they want to do the slh significance test on
+        print "Please enter the name of each trait you'd like to run this test on. Hit return between each entry. Type 'done' when you're done. (BE MINDFUL OF SPACES!)"
+        trait_list=[]
+        new_value='not done'
+        while new_value!='done' and new_value!='Done':
+                #print "new_value", new_value, "type", type(new_value)
+                new_value=raw_input()
+                #new_value_split=new_value.split('*')
+                #print "new_value_split", new_value_split
+                if (new_value not in just_fitness_names and new_value not in ['done','Done']):
+                        print "You have entered a trait that is not found in the trait-containing spreadsheet. Please re-enter, being mindful of spaces and typos."
+                else:
+                        trait_list.append(new_value) # changed from traits_and_values.append(split_new_value_remove_spaces)
+        trait_list=trait_list[0:len(trait_list)-1]
+        print "trait_list", trait_list
+
+        #get the MLH index
+        print "Please enter the multilocus heterozygosity estimator you'd like to use (MLH is recommended), being mindful of spaces."
+        new_value='not done'
+        new_value=raw_input()
+        while new_value not in just_fitness_names:
+                print "You have entered a trait that is not found in the trait-containing spreadsheet. Please re-enter, being mindful of spaces and typos."
+                new_value=raw_input()
+        print "MLH index is", new_value
+        r.mlh_value=new_value
+
+        r.pipeline_dir=pipeline_directory
+        print r("setwd(paste(pipeline_dir,'Single_Locus_Effects_Test/', sep=''))")
+        print r("data<-read.csv(paste(pipeline_dir,'Single_Locus_Effects_Test/fitness_and_loci_combined.csv', sep=''),header=T)")
+        r.the_loci=keeplist_as_list_of_strings
+        #print r("print(data)")
+        for trait in trait_list:
+                #print "made it here"
+                #print "trait", trait
+                #print type(trait)
+                r.current_trait=trait
+
+                #get the relevent link function for the response variable (and predictor variables?)
+                print "The trait currently being tested is: ",trait
+                family=raw_input("What sort of error distribution and link function do you expect to use in your models? Your choices are: binomial, gaussian, Gamma, inverse.gaussian, poisson, quasi, quasibinomial, and quasipoisson. Note that gaussian denotes normal linear regression. Please type one of them and press enter")
+                while family not in ['binomial', 'gaussian', 'Gamma', 'inverse.gaussian', 'poisson', 'quasi', 'quasibinomial', 'quasipoisson']:
+                        family=raw_input("You typed a link function that is not one of the options. Please type either binomial, gaussian, Gamma, inverse.gaussian, poisson, quasi, quasibinomial, or quasipoisson. Note that gaussian denotes normal linear regression.")
+                r.fam=family
+                #print r("print(the_loci)")
+                #print r("print(data)")
+                #print r("print(current_trait)")
+                #print r("print(data[current_trait])")
+                print (r('comparemodels(data[!is.na(data[current_trait]),],current_trait, the_loci, mlh_value, fam)'))
+ 
+
+###################
+##Run regressions##
+###################
+
+def perform_MAM(data, pipeline_directory, rejected_samples_address):#assumes that exceptions have been removed at this point
+        #print "This portion of the pipeline evaluates minimum adequate models, to determine whether heterozygosity is an important predictor of a target fitness-associated trait.\n"
+        #data_as_dict=Table_to_DictOfLists_General(data)
+        #exceptions=readCsv_input(rejected_samples_address)
+        
+        #print "data_as_dict", data_as_dict
+        try:
+                os.mkdir(pipeline_directory+'Regressions')
+        except:
+                pass
+
+        saveCsv(data,'temp.csv',pipeline_directory+'Regressions/')
+        #print "Make sure the temp.csv file gets completely overwritten each time"
+
+        #print all of the column options
+        print "Your trait column headers are as follows (BE MINDFUL OF SPACES!:\n", data[0]
+ 
+
+        #get the relevent link function for the response variable (and predictor variables?)
+        family=raw_input("What sort of error distribution and link function do you expect to use in your models? Your choices are: binomial, gaussian, Gamma, inverse.gaussian, poisson, quasi, quasibinomial, and quasipoisson. Note that gaussian denotes normal linear regression. Please type one of them and press enter")
+        while family not in ['binomial', 'gaussian', 'Gamma', 'inverse.gaussian', 'poisson', 'quasi', 'quasibinomial', 'quasipoisson']:
+                family=raw_input("You typed a link function that is not one of the options. Please type either binomial, gaussian, Gamma, inverse.gaussian, poisson, quasi, quasibinomial, or quasipoisson. Note that gaussian denotes normal linear regression.")
+
+       
+        #get the response variable from the user
+        new_value='not done'
+        print "What trait do you want as your response variable?"
+        new_value=raw_input()
+        while new_value not in data[0]:
+                print "You have entered a trait that is not found in the trait-containing spreadsheet. Please re-enter, being mindful of spaces and typos."
+                new_value=raw_input()
+        response_variable=new_value
+
+        #get the predictor variable(s) from the user
+        predictor_variables=[]
+        print "What trait(s) do you want as predictor variable(s)? Please hit RETURN between each entry. Simply type 'done' when done."
+        new_value='not done'
+        while new_value!='done' and new_value!='Done':
+                #print "new_value", new_value, "type", type(new_value)
+                new_value=raw_input()
+                new_value_split=new_value.split('*')
+                if (not set(new_value_split).issubset(data[0]) and new_value not in ['done','Done']):
+                        print "You have entered a trait that is not found in the trait-containing spreadsheet. Please re-enter, being mindful of spaces and typos."
+                else:
+                        predictor_variables.append(new_value) # changed from traits_and_values.append(split_new_value_remove_spaces)
+                #print "predictor_variables", predictor_variables
+
+        #remove the 'done' from predictor_varaibles
+        predictor_variables=predictor_variables[0:len(predictor_variables)-1]
+        predictor_variables_reduced=[x.split('*') for x in predictor_variables]
+        predictor_variables_reduced=list(recursive_list_of_lists_to_list_of_strings(predictor_variables_reduced))
+        print"predictor_variables", predictor_variables
+        print "predictor_variables_reduced", predictor_variables_reduced
+
+
+        
+        #the bulk of the work (needs to be new PypeR stuff)
+        predictors_as_string=list_as_string(predictor_variables)
+        #from pyper import *
+        r=R(use_numpy=True)
+        r.pipeline_dir=pipeline_directory
+        r.response=response_variable
+        r.predictors=predictor_variables
+        r.predictors_reduced=predictor_variables_reduced
+        r.predictor_filename=predictors_as_string
+        r.fam=family
+        print r("setwd(paste(pipeline_dir,'Regressions/', sep=''))")
+        print r("data<-read.csv(paste(pipeline_dir,'Regressions/temp.csv', sep=''),header=T)")
+        print r("data[data=='-']=NA")
+        print r("data[data=='']=NA")
+        #print r("data[data==NULL]=NA")
+        ####THIS IS WHERE YOU SHOULD MAKE YOUR EXCEPTION SUBSET
+        r.rejected_path=rejected_samples_address
+        print r("rejected<-read.csv(rejected_path, header=F)")
+        #print r("print(rejected)")
+        print r("data<-subset(data, !(ID %in% rejected[,1]))") 
+        #print r("print(data[c(predictors, response)])")
+        print r("print(predictors_reduced)")
+        print r("no.na.data<-na.omit(data[c(predictors_reduced,response)])")
+        #print r("str(data)")
+        print r("model <- glm(formula=as.formula(paste(paste(response,'~', sep=''),paste(predictors,collapse='+'), sep='')),family=fam, no.na.data)")
+        CMDs1=["sink(file=paste(paste(pipeline_dir,'Regressions/', sep=''),paste(paste(paste(paste(fam,response,sep=''), 'on', sep=''), predictor_filename, sep=''),'_full_data_set.txt', sep='')))", "print(summary(model))", "sink()"]
+        CMDs2=["sink(file=paste(paste(pipeline_dir,'Regressions/', sep=''),paste(paste(paste(paste(fam,response,sep=''), 'on', sep=''), predictor_filename, sep=''),'.txt', sep='')))", "step(model)", "sink()"]
+        CMDs3=["tiff(filename=paste(paste(pipeline_dir,'Regressions/', sep=''),paste(paste(paste(paste(fam,response,sep=''), 'on', sep=''), predictor_filename, sep=''),'_full_data_set_assumptions_check.tiff', sep='')))", "layout(matrix(c(1,2,3,4),2,2))", "plot(model)", "dev.off()"]
+        print r(CMDs1)
+        print r(CMDs2)
+        print r(CMDs3)
+
+def get_bifurcation(data, pipeline_directory, rejected_samples_address):
+        #print "data in bifurcation function", data
+        data_as_dict=Table_to_DictOfLists_General(data) # remember that this module assumes that the first column is IDs (and thus unique)
+        exceptions=readCsv_input(rejected_samples_address)
+        #print "data_as_dict", data_as_dict
+        try:
+                os.mkdir(pipeline_directory+'Data_subsets')
+        except:
+                pass
+        
+        #print all of the column options
+        print "Your trait column headers are as follows (BE MINDFUL OF SPACES!:\n", data[0]
+        print "Your trait values include such values as (BE MINDFUL OF SPACES!:\n", data[1]
+        #get an array from the user of column
+        new_value='nope'
+        print "Which traits and which values of these traits do you want to exclude from this analysis? Please enter as two values separated by a comma (NO SPACES!). Example: V1,0. Simply type 'done' when done."
+        traits_and_values=[]
+        while new_value not in ['done','Done']:
+                #print "new_value", new_value, "type", type(new_value)
+                new_value=raw_input()
+                split_new_value=new_value.split(',')
+                split_new_value_remove_spaces=[x.replace(' ','') for x in split_new_value] #can't remember why I originally did this, but it creates a problem when the trait mismatches the trait list, which contains spaces. Removed for now 7.17.2012
+                #print "temp split_new_value_remove_spaces[0]", split_new_value_remove_spaces[0]
+                the_trait=split_new_value_remove_spaces[0]
+                for i,row in enumerate(transposed(data)):
+                        if row[0]==the_trait:
+                                the_row=i
+                                #print the_trait, "=", row[0]
+                                
+                #print "type", type(split_new_value_remove_spaces[0])
+                #print "data", data
+                #print "data.index(split_new_value_remove_spaces[0])", data.index(split_new_value_remove_spaces[0])
+                if (split_new_value_remove_spaces[0] not in data[0] and split_new_value_remove_spaces[0] not in ['done','Done']):
+                        print "You have entered a trait that is not found in the trait-containing spreadsheet. Please re-enter, being mindful of spaces and typos."
+                elif (len(split_new_value_remove_spaces)!=2 and split_new_value_remove_spaces[0] not in ['done','Done']):
+                        print "You may have forgotten to enter a trait value along with your trait"
+                elif (len(split_new_value_remove_spaces)==2):
+                        if (split_new_value_remove_spaces[1] not in transposed(data)[the_row] and split_new_value_remove_spaces[1] not in ['done','Done']):
+                                        print "You have entered a trait value that is not found in the trait-containing spreadsheet. Please re-enter, being mindful of spaces and typos."
+                        else:
+                                traits_and_values.append(split_new_value) # changed from traits_and_values.append(split_new_value_remove_spaces)
+                #print "traits_and_values", traits_and_values
+        #remove the 'done' from traits_and_values
+        #I don't think you have to do this anymore
+        #traits_and_values=traits_and_values[0:len(traits_and_values)-1]
+        print"traits_and_values final", traits_and_values
+
+        data_copy=copy.deepcopy(data_as_dict)
+
+        #remove header
+        #print "before header removal", data_copy
+        data_copy=remove_header_dict(data_copy)
+        #print "after header removal", data_copy
+        
+        #print "data_as_dict", data_as_dict
+        #for x in data_as_dict:
+#                print "x all", x
+        for x in data_as_dict:
+                #print "x", x
+                for y in data_as_dict[x]:
+                        #print "y", y
+                        for z in traits_and_values:
+                                #print "z", z
+                                #print "z[0]", z[0]
+                                #print "y[0]", y[0]
+                                #print "y[1]", y[1]
+                                #print "y", y
+                                if z[0]==y[0]:
+                                        #print "this happens" #z[0]==y[1] or or  removed from if statement below
+                                        if z[1]==y[1] or  (' '+z[1])==y[1] or [x] in exceptions: #will the z[0]==y[1] ever cause problems? Using this currently to eliminate the header row that keeps ending up in the output
+                                                #print "I will remove this sample from the dictionary"
+                                                try:
+                                                        #print x, " is getting deleted"
+                                                        del data_copy[x]
+                                                        
+                                                except:
+                                                        #print "Hopefully the script has already deleted ", x
+                                                        pass
+                                                #print x
+                                                #print z
+                                                #print y
+                                                
+                                        
+        #print "data_copy", data_copy
+        try:
+                os.mkdir(pipeline_directory+'Data_subsets/'+list_as_string([list_as_string(x) for x in traits_and_values])+'_removed_subset/')
+        except:
+                pass
+        saveCsv(DictOfLists_toTable_General(data_copy, pipeline_directory), list_as_string([list_as_string(x) for x in traits_and_values])+'_removed_subset.csv', pipeline_directory+'Data_subsets/'+list_as_string([list_as_string(x) for x in traits_and_values])+'_removed_subset/')
+        
+        return [DictOfLists_toTable_General(data_copy, pipeline_directory), pipeline_directory+'Data_subsets/'+list_as_string([list_as_string(x) for x in traits_and_values])+'_removed_subset/']
+
+################################################
+##run full_data_set conversion to spreadsheets##
+################################################
+
+def process_all_full_data_set_files_in_directory(directory_address):
+        #print "directory_address at entry of process_all_full_data_set_files_in_directory", directory_address
+        dir_list=os.listdir(directory_address)
+        #print "before", dir_list
+        for i, f in enumerate(dir_list):
+                #print f
+                os.rename(directory_address+f,directory_address+f.replace(" ",""))
+        dir_list=os.listdir(directory_address)
+        #print type(dir_list)
+        #print len(dir_list)
+        full_data_sets=[x for x in dir_list if "full_data_set.txt" in x]
+        #print "full_data_setss",full_data_sets
+        try:
+                os.mkdir(directory_address+'processed_model_output/')
+        except:
+                pass
+
+        for filename in full_data_sets:
+                saveCsv(process_single_full_data_set_file(directory_address+filename), title_from_address(directory_address+filename)+'_processed.csv' ,directory_address+'processed_model_output/')
+
+
+###################################
+##Auxiliary and Dependent Modules##
+###################################
+        
+def PypeRify(r_as_text_address): #gets a little buggy with pounded comments on the same lines as R code
+        warning=raw_input("Just remember that your R code should have no pounded comments before entering this module, or else it won't work")
+        linelist=open(r_as_text_address).readlines()
+        saveFile=open(raw_input("Address and name-including '.txt'-of the file you want to save"), 'w')
+        for line in linelist:
+                #print "type(line)", type(line)
+                #print "line before", line
+                if len(line)>0:
+                        line=line.replace('"','\'')
+                        line=insert(line,'print r("',0)
+                        line=insert(line,'")', len(line)-1)
+                        #print "line after", line
+                        saveFile.write(line)
+                        #print line
+                        #print "type", type(line)
+                        #def insert(original, new, pos)
+
+        saveFile.close()
+
+def Purge_Polyploid_MisScores(dictOfLists):
+    for key,lst in dictOfLists.items():
+        for locus in lst:
+            while len(locus)>3:
+                #print "locus %s" %locus
+                if '**' in locus:
+                    locus.remove('**')
+                else:
+                    for allele in locus:
+                            #print "allele %s" %allele
+                            if locus.count(allele)>2:
+                                    locus.remove(allele)
+                            elif locus.count(allele)>1 and len(locus)>3:
+                                locus.remove(allele)
+                #print "still in the loop"
+                
+    return dictOfLists
+
+def Purge_Polyploid_MisScore_from_Locus(Locus_list):
+        if len(Locus_list)>3:
+                try:
+                        Locus_list=Locus_list.remove('**')
+                except:
+                        for z in Locus_list:
+                                if Locus_list.count(z)>2:
+                                        #print "removed ",z," at Locus_list", Locus_list
+                                        Locus_list.remove(z)
+                                        #print "now, it looks like", Locus_list
+                if len(Locus_list)>3:
+                        print "The Length is still greater than 3! at Locus_list", Locus_list
+        return Locus_list
+
+
+   
+def readCsv():
+        filename=raw_input("Name of csv file you want to read")
+        csv_reader=csv.reader(open(filename, "rU"))
         try:
                 rows=[row for row in csv_reader]
         except:
@@ -37,10 +1756,6 @@ def readCsv_input_safer(filename):
         return data
                         
 
-## {{{ http://code.activestate.com/recipes/410687/ (r4)
-def transposed(lists):
-   if not lists: return []
-   return map(lambda *row: list(row), *lists)
 
 def transposed2(lists, defval=0):
    if not lists: return []
@@ -501,82 +2216,6 @@ def special_match(strg, search=re.compile(r'[^0.]').search): #http://stackoverfl
         return not bool(search(strg))
 
 
-def allele_report_pipeline_directory_version (allele_reports_address, keeplist_address, monolist_address, pipeline_directory, rejected_samples_address):
-    exceptions=readCsv_input(rejected_samples_address)
-    #note: you will have to run this more than once. The second time will be after you have dealt with all of the issues related to missing.txt
-    #import os
-    #import csv
-    ##mport allele_report_manip
-    #import transpose
-    alleleList=[x for x in os.listdir(allele_reports_address) if '.csv' in x]
-    #print "alleleList", alleleList
-    present_cumulative=[]
-    keeplist=readCsv_input(keeplist_address)
-    #print "keeplist",keeplist
-    monolist=readCsv_input(monolist_address)
-    #print "monolist", monolist
-    renamed_files=[]
-
-
-    #go through all of the allele reports on the allelereports list and do the following things:    
-    for a in alleleList: #len(alleleList)
-        #print "a", a
-        #open the file
-        file=allele_reports_address
-        file+=a
-        print "file", file
-        data=readCsv_input(file)
-        
-        #get rid of the top rows with the unimportant information
-        #print "data before cleanup", data
-        cleaned=cleanup(data)
-        #print "data after cleanup", cleaned
-
-        #fill the top row with names corresponding to loci
-        filled=fill_header(cleaned)
-        #print "data after fill_header", filled
-
-        #print "The file",alleleList[a][0], "needs to have the following loci fixed:"
-        #remove loci that have three or more columns ----------------This is now also the spot/function to check for items on keeplist that are being removed
-        removed_bad=remove_bad_loci(filled, keeplist)
-        #print "after bad removed", removed_bad
-
-        #keeps track of every locus that has been processed
-        for x in range (0, len(removed_bad[0])): #this assumes that the locus names are in the first row, which they should be at this point
-            present_cumulative.append(removed_bad[0][x])
-        #print "present_cumulative", present_cumulative
-        #gets rid of loci still in the samples that we know apriori (from monolist) are monomorphic
-        rid=remove_nonscores(removed_bad, monolist)
-        #print "rid", rid
-
-        #renames the ID with numbers instead of their long crazy names
-        rid_trans=transposed(rid)
-        #print "rid_trans", rid_trans
-#        delimiter=raw_input("If your sample names have a number in the front of them separated by a delimiter, what is that delimiter? Otherwise, press enter.")
-#        if len(delimiter) !=0:
-            #print "before renaming row", rid_trans[1]
-        rid_trans[1]=rename_row(rid_trans[1])
-        #print "after renaming row", rid_trans[1]
-        rid_back=transposed(rid_trans)
-
-        rid_back=fill_non_star_missing_with_dups(rid_back)
-        #print "rid_back", rid_back
-        filename='edited_'
-        filename+=a
-        renamed_files.append([filename])
-        saveCsv(rid_back,filename, pipeline_directory)
-
-
-    #print "present_cumulative", present_cumulative
-    #print "keeplist", keeplist
-
-    #cross references the loci that have been scored with a list of loci that SHOULD have been scored and reports any on the keeplist that were missed (usually means some were scored as triploids, etc.)    
-    most_missingest(present_cumulative, keeplist, pipeline_directory)
-    #print "renamed_files", renamed_files
-    saveCsv(renamed_files, 'edited_file_list', pipeline_directory)
-
-    #check that all of the samples that are present in one file are present in the others
-    unique_samples_in_edited_files(pipeline_directory+'edited_file_list', pipeline_directory, exceptions)
 
 def fill_non_star_missing_with_dups(list_of_lists):
     #first, get max row length
@@ -823,106 +2462,6 @@ def index_of_row_with_x_in_slot_y(data, x, y): #data is a list of lists of strin
         else:
                 return "Your index_of_row_with_x_in_slot_y module had a problem"
 
-def combine_allele_report_pipeline_dict(pipeline_directory, keeplist_address, rejected_samples_address):
-        #The first allele report on the allele report list must contain the most comprehensive list of samples (i.e., if you have two DNA plates for the same panel of loci in two different GeneMarker files for one panel you scored the two plates together in another panel, use the GeneMarker file of the latter as the first in your list.
-        files_to_combine=readCsv_input(pipeline_directory+'edited_file_list')
-
-        address_to_directory=pipeline_directory
-        keeplist=readCsv_input(keeplist_address)
-        exceptions=readCsv_input(rejected_samples_address)
-        #print "exceptions", exceptions
-        whole_file=readCsv_input(address_to_directory+files_to_combine[0][0]) #I think the point of whole_file is to give a size to populate the list below
-        #print "whole file", whole_file
-        list_of_sample_names=[]
-        for x in range(1, len(whole_file)):
-                #print "whole_file[x][1]", whole_file[x][1]
-                if [whole_file[x][1]] not in exceptions:
-                        #print "this is not in exceptions, supposedly", whole_file[x][1]
-                        list_of_sample_names.append(whole_file[x][1])
-        #print "list of sample names", list_of_sample_names
-
-        #populate a dicitonary called samples with keys that are the sample names with a list of locus names, each of which is itself a list that will later have genotypes appended to it
-        samples={}
-        location_of_keeplist=keeplist_address
-        for x in range (0, len(list_of_sample_names)):
-                #print "list_of_sample_names[x]", list_of_sample_names[x]
-                samples[list_of_sample_names[x]]=readCsv_input(location_of_keeplist)
-        #print "samples after filling", samples
-        #print "the keys in samples", samples.keys()
-        
-        address_of_rejected_samples=rejected_samples_address
-        exceptions=readCsv_input(address_of_rejected_samples)
-        #print "exceptions", exceptions
-
-        for w in range(0, len(files_to_combine)): #for each file in the list
-            filename=address_to_directory
-            filename+=files_to_combine[w][0]
-            print 'file',filename
-            temp=readCsv_input(filename) # read the file
-            #print 'data from that file',temp
-            #temp_trans=transposed(temp)
-            target_index=0
-            for z in range (1, len(temp)):
-                #print "z", z
-                for y in range (2, len(temp[0])):
-                    #print "y", y
-                    #print type(temp[z][1])
-                    #print "temp[z][1] should be a sample name and a key in the samples dict",temp[z][1]
-                    #print temp[z][1].find('B')
-                    if (temp[z][1].find('blank')<0 and temp[z][1].find('Blank')<0 and [temp[z][1]] not in exceptions):#as long as the individual's name doesn't contain the word "blank", as in Blank or Blank_someNumber
-                        #print "there should never be a blank here. Is there? :", temp[z][1] #the first "and" might need to change to an "or"
-                        #print len(samples[int(temp[z][1])]) #might produce an error
-                        for i in range (0, len(keeplist)):# I think is analogous #len(samples[int(temp[z][1])])
-                                    #print "data [0][y]",temp[0][y]
-                                    #print samples[int(temp[z][1])][i] #might produce an error
-                                    #print "temp[0][",y,"]", temp[0][y]
-                                    #print "temp[",z,"][1]", temp[z][1]
-                                    #print "i", i
-                                    #print "samples[temp[",z,"][1]][",i,"]", samples[(temp[z][1])][i]
-                                    if temp[0][y] in samples[((temp[z][1]))][i]:# aka if the locus name is in this particular list within this particular sample #took out [i] #just added in the int here; might not be a good idea
-                                        #print "this loop gets entered"
-                                        #print int(temp[z][1])
-                                        #print "i", i
-                                        target_index=i
-                                        #print "before",samples[(temp[z][1])][target_index]
-                                        if (temp[z][1] not in exceptions  ): #this may not matter anymore because of the "exceptions" generated in the upstream script
-                                            #print "target index", target_index
-                                            #print "temp[z][y]", temp[z][y]
-                                            if (temp[z][y]!='OL'and temp[z][y]!=''): # removed "and temp[z][y]!=''" from if statement
-                                                if len(samples[(temp[z][1])][target_index])>3: #7_9_2012 I added the following script, which should collapse to diploid all samples that were tetraploid (likely because the samples were being repeated?) This, clearly, also deals with the problem of having two samples with the same names and different genotypes at a locus. It does so in such a way that missing genotypes are replaced with scored genotypes and homozygous genotypes are replaced with heterozygous ones.
-                                                        #print "data [0][y]",temp[0][y]
-                                                        #print samples[int(temp[z][1])][i] #might produce an error
-                                                        #print "temp[0][",y,"]", temp[0][y]
-                                                        #print "temp[",z,"][1]", temp[z][1]
-                                                        #print "samples[temp[",z,"][1]][",i,"]", samples[(temp[z][1])][i]
-                                                        old_genotype=samples[(temp[z][1])][target_index]                                                        
-                                                        #print "old_genotype at this slot", old_genotype
-                                                        new_genotype=[temp[z][y]]
-                                                        #print "new_genotype at this slot", new_genotype
-                                                        if '**' in old_genotype and '**' not in new_genotype:
-                                                                samples[(temp[z][1])][target_index]=[ x for x in samples[(temp[z][1])][target_index] if "**" not in x ]                                                                
-                                                                #print "after removal", samples[(temp[z][1])][target_index]
-                                                        elif new_genotype[0] in old_genotype:
-                                                                #print "had to remove one"
-                                                                samples[(temp[z][1])][target_index].remove(new_genotype[0])
-                                                                #print "after removal: ", samples[(temp[z][1])][target_index]
-                                                        else:
-                                                                #print "you haven't seen this problem yet", samples[(temp[z][1])][target_index]
-                                                                Purge_Polyploid_MisScore_from_Locus(samples[(temp[z][1])][target_index])
-                                                                #print "after ", samples[(temp[z][1])][target_index]
-                                                samples[(temp[z][1])][target_index]=samples[(temp[z][1])][target_index]+[temp[z][y]]#may possibly need to deal with bracketing issues, depending on whether lists are appended to the rows, or strings are appended to the end of the single list in each row of each "keeplist"
-                                                #print "after",samples[(temp[z][1])][target_index]
-                                            else:
-                                                #print "z",z,"y",y
-                                                samples[(temp[z][1])][target_index]=samples[(temp[z][1])][target_index]+['**']
-    
-        #print "before re-purging", samples
-        #testDict(samples)
-        samples=Purge_Polyploid_MisScores(samples)
-        #print "samples", samples
-        DictOfLists_toTable(samples, pipeline_directory, rejected_samples_address)
-        keys_as_numbers_sorted=GenePop_Output(samples, pipeline_directory, rejected_samples_address)
-        return [list_of_sample_names, keys_as_numbers_sorted]
 
 def any_line_that_starts_with_this(string, linelist):
         #print "string being passed", string
@@ -1056,51 +2595,6 @@ def sortedDictValues(dictionary):
                 keys=dictionary.keys()
                 keys.sort()
                 return map(dictionary.get, keys)
-def genePop_to_rhh(pipeline_directory, rejected_samples_address):
-        data=readCsv_input(pipeline_directory+'final_output_GenePop.txt')
-        #print "data", data
-
-        if (['POP'] in data):
-                top=data.index(['POP'])+1
-        else:
-                if (['Pop'] in data):
-                        top=data.index(['Pop'])+1
-                else:
-                        if (['pop'] in data):
-                                top=data.index(['pop'])+1
-                        
-        #print "top", top
-        data_trimmed=data[top:len(data)]
-        #print "data_trimmed off top", data_trimmed
-        #print data_trimmed[0]
-
-        for x in range(0, len(data_trimmed)):
-            if (len(data_trimmed[x])>1):
-                #print type(data_trimmed[x][1])
-                data_trimmed[x][1]=data_trimmed[x][1].split()
-                #print "data[x] after splitting",data_trimmed[x][1]
-                for z in range (0, len(data_trimmed[x][1])):
-                    data_trimmed[x][1][z]=split(data_trimmed[x][1][z])
-                    #print "data[",x,"][", 1,"]", "[",z,"]"
-                #data_trimmed[x][1]=split(data_trimmed[x][y])
-
-        #print "data_trimmed",data_trimmed
-        for entry in data_trimmed:
-                for genotype in entry[1]:
-                        for i, allele in enumerate(genotype):
-                                #print allele
-                                if allele in ['00','000']:
-                                        genotype[i]='0'
-                                        #print genotype 
-
-        #print "data_trimmed", data_trimmed
-        #print type(data_trimmed)
-        
-        spaces_removed=remove_spaces_from_list_recursive(data_trimmed)
-        #print "spaces_removed", spaces_removed
-        rhh_output(data_trimmed, pipeline_directory)
-
-        print "genePop data has been converted to rhh format and is ready for the rhh script"
 
 def remove_spaces_from_list_recursive(the_list): #can deal with lists of lists of lists etc...
         if isinstance(the_list, basestring):
@@ -1110,258 +2604,6 @@ def remove_spaces_from_list_recursive(the_list): #can deal with lists of lists o
             #print "base case didn't happen for", the_list
             return map(remove_spaces_from_list_recursive, the_list)                       
                                         
-
-def convert_to_g2 (pipeline_directory, keeplist_address):
-        #this script will take a file in GenePop format and will convert it into a file that is ready to be submitted as RMES input (with the possible exception of having to deal with mac vs pc issues, and perhaps a space at the end)
-
-        #Assumptions: each row is the same length
-
-        #get the GenePop text file, and convert it to csv format
-        address=pipeline_directory+'final_output_GenePop.txt'
-        txt_to_csv(address)
-        data=readCsv_input(address+'_csv_converted.csv')
-        #print "data", data
-
-
-        #extract the important parameters of the GenePop file. Attempting to generalize to GenePop files with more than one population
-        number_of_populations=data.count(['POP'])+data.count(['Pop'])+data.count(['pop'])+data.count([['POP']])+data.count([['Pop']])+data.count([['pop']])
-        print "number of populations", number_of_populations
-
-        #now get a list of population names. This is only complicated because there could be more than one, and it's hard to distinguish them in a list
-        #assumes that the GenePop file has more than one population name if it has more than one population. This seems not to be the case, but RMES suggests that there might. I'll create a way to manually add more population names (may not be useful). There is potential that this will just create a list of the same population name over and over again. If there is an error here and it is actually a problem for your dataset, please email mark.aaron.fisher@gmail.com
-        population_names=[]
-        keeplist=readCsv_input(keeplist_address)
-        #print "keeplist", keeplist
-        #When you made the GenePop conversion module, you changed some the locus names to avoid having spaces in them. You replaced them with underscores. Here, you'll put the spaces back where the underscores are. *This is why your locus names can't have underscores already!*
-        keeplist_without_spaces=keeplist
-        for x in range(0, len(keeplist_without_spaces)):
-            #print "before replace",keeplist_without_spaces[x][0]
-            keeplist_without_spaces[x][0]=keeplist_without_spaces[x][0].replace(' ', '_')
-            #print "after replace", keeplist_without_spaces[x][0]
-        #print "keeplist_without_spaces", keeplist_without_spaces
-        #still getting population names...
-        name_counter=0
-        for x in range (0,number_of_populations):
-            #print "x", x
-            for y in range (0, len(data)):
-                data=readCsv_input(address+'_csv_converted.csv')
-                #print data[y]
-                #print type(data[y])
-                if (len(data[y])>0):                        
-                        if (([data[y][0]] not in keeplist) and ([data[y][0]] not in keeplist_without_spaces) and (data[y][0] not in ('POP', 'Pop', 'pop', ['POP'], ['Pop'], ['pop'])) and (name_counter<x+1)): #the name_counter here tracks whether the potential population name occurs before the word 'POP' in this particular instance of finding a population name. In other words, it ensures that population_name.append() only happens once per loop. This avoids lines with genotypes or locus names being reported as population names
-                                population_names.append(data[y][0])
-                                name_counter+=1
-#        print "These are what I have as your population names:", population_names
-#        done=raw_input("Is that all of them? y/n")
-#        while done != ('y' or 'yes'):
-#            new_pop_name=raw_input("Please enter the next population name.")
-#            population_names.append(new_pop_name)
-#            done=raw_input("Is that all of them? y/n")
-        print "Population Name:", population_names
-
-
-        #now, start to split the genotype strings and convert them to 1 for het, 0 for homo, -99 for missing score
-        for y in range (0, len(data)):
-            #print "y in split module", y
-            if (len(data[y])>0):
-                if ([data[y][0]] not in keeplist and ([data[y][0]] not in keeplist_without_spaces) and (data[y][0] not in population_names) and (data[y][0] not in ('POP', 'Pop', 'pop', ['POP'], ['Pop'], ['pop']))):
-                    #print "data[",y,"][0]",data[y][0]
-                    data[y][0]=data[y][0].split(' ')
-                    #print "before", data[y][0]
-                    for z in range (1, len(data[y][0])):
-                        data[y][0][z]=assign_zygosity(data[y][0][z])
-                    #print "after zygosity assignment", data[y][0]
-            
-
-        #print "data at this point", data
-
-        #create a csv file that contains ids, then each locus and the genotype at that locus for each sample as either 1, 0, or NA
-        hets_and_homos_cleanup(copy.deepcopy(data), population_names, pipeline_directory) #this takes data at this point and converts it into a csv file that can later be used for calculate_MLH. It's a completely internal module.
-
-        #create a csv file that contains ids in one column, and MLH in the other
-        calculate_MLH(readCsv_input(pipeline_directory+'heterozygotes_and_homozygotes.csv'), pipeline_directory)
-
-        
-        #get the number of loci and the number of samples in each population
-        number_loci=[]
-        sample_number_counter=[]
-
-        for x in range (0, number_of_populations):
-            POP_counter=0
-            #print "x",x    
-            for y in range (0, len(data)):
-                #print "y", y
-                #print "POP_counter at this point", POP_counter
-                if (POP_counter==0 and ([data[y][0]] in keeplist or [data[y][0]] in keeplist_without_spaces)):
-                    if (len(number_loci)<x+1):
-                        number_loci.append(1)
-                        #print "made a new locus element"
-                    else:
-                        number_loci[x]=number_loci[x]+1
-                        #print "added a new locus to the current population"
-                if (POP_counter==x+1 and ([data[y][0]] not in keeplist and [data[y][0]] not in keeplist_without_spaces) and (data[y][0] not in ('POP', 'Pop', 'pop', ['POP'], ['Pop'], ['pop'])) and (data[y][0] not in population_names)):
-                     if (len(sample_number_counter)<x+1):
-                        sample_number_counter.append(1)
-                        #print "made a new sample number element"
-                     else:
-                         #print sample_number_counter[x]
-                         sample_number_counter[x]=sample_number_counter[x]+1
-                         #print "added a new sample to the current population"
-                if (data[y][0] in ('POP', 'Pop', 'pop', ['POP'], ['Pop'], ['pop'])):
-                    #print "POP_counter gets added to"
-                    POP_counter+=1
-        
-        #now create the output file
-        #print "data", data       
-        output_name=pipeline_directory+'RMES_ready.txt'
-        saveFile=open(output_name,'w')
-        saveFile.write(str(number_of_populations))
-        saveFile.write('\n')
-        for x in range (0, number_of_populations):
-            #print "x",x
-            saveFile.write(population_names[x])
-            saveFile.write('\n')
-            #print sample_number_counter[x]
-            #print "type that above is", type(sample_number_counter[x])
-            saveFile.write(str(sample_number_counter[x]))
-            saveFile.write('\n')
-            saveFile.write(str(number_loci[x]))
-            saveFile.write('\n')
-        for y in range (0, len(data)):
-            #print "y",y
-            if (data[y][0] not in keeplist and data[y][0] not in keeplist_without_spaces and data[y][0] not in population_names and data[y][0] not in ('POP', 'Pop', 'pop', ['POP'], ['Pop'], ['pop']) and [data[y][0]] not in keeplist and [data[y][0]] not in keeplist_without_spaces and [data[y][0]] not in population_names and [data[y][0]] not in ('POP', 'Pop', 'pop', ['POP'], ['Pop'], ['pop'])):
-                #print "data[",y,"][0]", data[y][0]
-                #print "type", type(data[y][0])
-                if len(data[y][0])>1:
-                    for z in range (1, len(data[y][0])):
-                        #print "data[",y,"][0][",z,"]", data[y][0][z]
-                        saveFile.write(str(data[y][0][z])+' ')
-                    saveFile.write('\n')                               
-                else:
-                    #print "this is your list that should be a string:", data[y][0][0]
-                    saveFile.write(data[y][0][0])
-                    saveFile.write('\n')
-        saveFile.close()
-
-        ##get rid of spaces at the end of the file
-        spacey=open(output_name,'r')
-        spacey_contents=spacey.readlines()
-        spacey.close()
-        t=spacey_contents[len(spacey_contents)-1]
-        t=t[:-1]
-        t=t[:-1] #I think there are two spaces right now
-        #print t
-        spacey_contents[len(spacey_contents)-1]=t
-        ##temp
-        non_space=spacey_contents
-        #non_space=spacey_contents[:-1]
-
-#        non_space=[]
-#        for line in spacey_contents:
-#                print "line", line
-#                line_copy=copy.deepcopy(line)
-#                line_copy.replace(" ","")
-#                if len (line_copy)<1:
-#                        print "this happens"
-#                        continue
-#                else:
-#                        non_space.append(line)
-        save2=open(output_name,'w')
-        for line in non_space:
-                save2.write(line)
-        save2.close()
-        print "Your GenePop file has been converted to an RMES-ready file called, ",output_name
-
-def PypeRify(r_as_text_address): #gets a little buggy with pounded comments on the same lines as R code
-        warning=raw_input("Just remember that your R code should have no pounded comments before entering this module, or else it won't work")
-        linelist=open(r_as_text_address).readlines()
-        saveFile=open(raw_input("Address and name-including '.txt'-of the file you want to save"), 'w')
-        for line in linelist:
-                #print "type(line)", type(line)
-                #print "line before", line
-                if len(line)>0:
-                        line=line.replace('"','\'')
-                        line=insert(line,'print r("',0)
-                        line=insert(line,'")', len(line)-1)
-                        #print "line after", line
-                        saveFile.write(line)
-                        #print line
-                        #print "type", type(line)
-                        #def insert(original, new, pos)
-
-        saveFile.close()
-
-def Purge_Polyploid_MisScores(dictOfLists):
-    for key,lst in dictOfLists.items():
-        for locus in lst:
-            while len(locus)>3:
-                #print "locus %s" %locus
-                if '**' in locus:
-                    locus.remove('**')
-                else:
-                    for allele in locus:
-                            #print "allele %s" %allele
-                            if locus.count(allele)>2:
-                                    locus.remove(allele)
-                            elif locus.count(allele)>1 and len(locus)>3:
-                                locus.remove(allele)
-                #print "still in the loop"
-                
-    return dictOfLists
-
-def Purge_Polyploid_MisScore_from_Locus(Locus_list):
-        if len(Locus_list)>3:
-                try:
-                        Locus_list=Locus_list.remove('**')
-                except:
-                        for z in Locus_list:
-                                if Locus_list.count(z)>2:
-                                        #print "removed ",z," at Locus_list", Locus_list
-                                        Locus_list.remove(z)
-                                        #print "now, it looks like", Locus_list
-                if len(Locus_list)>3:
-                        print "The Length is still greater than 3! at Locus_list", Locus_list
-        return Locus_list
-                                        
-
-        
-def Incorporate_HL_from_rhh(pipeline_directory, address_of_acceptor_file):
-        #takes the rhh MLH output (ID, IR, SH, and HL columns), and converts it into a csv file on the desktop called csv_converted.csv
-        txt_to_csv(pipeline_directory+"Rhh_test_output.txt")
-
-
-        #makes said csv file the donor file
-        #print "the prompt you're about to get is for the donor file-which is the file that contains the ID, IR, SH, and HL columns from the rhh script. It might be this file: /Users/markfisher/Desktop/pipeline/Rhh_test_output.txt_csv_converted.csv"
-        donor=readCsv_input(pipeline_directory+'Rhh_test_output.txt_csv_converted.csv')
-        #print "donor",donor, "done now"
-        acceptor=readCsv_input(address_of_acceptor_file)
-        #print "acceptor", acceptor
-
-        acceptorTrans=transposed(acceptor)
-        #print "acceptorTrans", acceptorTrans
-
-        #print donor
-        tally=0
-        for i in range (1,len(donor)):
-            if donor[i][0] in acceptorTrans[0]:
-                tally+=1
-                acceptor[acceptorTrans[0].index(donor[i][0])].append(donor[i][1])
-                acceptor[acceptorTrans[0].index(donor[i][0])].append(donor[i][2])
-                acceptor[acceptorTrans[0].index(donor[i][0])].append(donor[i][3])
-        #print acceptor
-        #print "tally", tally
-
-        #add IR, SH, HL columns
-        acceptor[0].append('IR')
-        acceptor[0].append('SH')
-        acceptor[0].append('HL')
-        #print "acceptor before", acceptor
-        acceptor=fill_blanks_of_data_table(acceptor)
-        acceptor=make_sure_NA_are_numeric_compliant(acceptor)
-        acceptor=remove_spaces_from_header(acceptor)
-        saveCsv(acceptor,"MLH_output.csv", pipeline_directory)
-
-        print "IR, HL, and SH values have been incorporated into the fitness data file (called MLH_output.csv)"
 
 def remove_spaces_from_header(list_of_lists):
         for entry in list_of_lists[0]: #assumes the headers are in the top row of list_of_lists
@@ -1491,97 +2733,6 @@ def pvalues_of_all(sensitivity_csv_subdirectory_address):
         saveCsv(data, 'Pvalues_of_all.csv', sensitivity_csv_subdirectory_address+'Pvalues_combined/')       
         
 
-def get_bifurcation(data, pipeline_directory, rejected_samples_address):
-        #print "data in bifurcation function", data
-        data_as_dict=Table_to_DictOfLists_General(data) # remember that this module assumes that the first column is IDs (and thus unique)
-        exceptions=readCsv_input(rejected_samples_address)
-        #print "data_as_dict", data_as_dict
-        try:
-                os.mkdir(pipeline_directory+'Data_subsets')
-        except:
-                pass
-        
-        #print all of the column options
-        print "Your trait column headers are as follows (BE MINDFUL OF SPACES!:\n", data[0]
-        print "Your trait values include such values as (BE MINDFUL OF SPACES!:\n", data[1]
-        #get an array from the user of column
-        new_value='nope'
-        print "Which traits and which values of these traits do you want to exclude from this analysis? Please enter as two values separated by a comma (NO SPACES!). Example: V1,0. Simply type 'done' when done."
-        traits_and_values=[]
-        while new_value not in ['done','Done']:
-                #print "new_value", new_value, "type", type(new_value)
-                new_value=raw_input()
-                split_new_value=new_value.split(',')
-                split_new_value_remove_spaces=[x.replace(' ','') for x in split_new_value] #can't remember why I originally did this, but it creates a problem when the trait mismatches the trait list, which contains spaces. Removed for now 7.17.2012
-                #print "temp split_new_value_remove_spaces[0]", split_new_value_remove_spaces[0]
-                the_trait=split_new_value_remove_spaces[0]
-                for i,row in enumerate(transposed(data)):
-                        if row[0]==the_trait:
-                                the_row=i
-                                #print the_trait, "=", row[0]
-                                
-                #print "type", type(split_new_value_remove_spaces[0])
-                #print "data", data
-                #print "data.index(split_new_value_remove_spaces[0])", data.index(split_new_value_remove_spaces[0])
-                if (split_new_value_remove_spaces[0] not in data[0] and split_new_value_remove_spaces[0] not in ['done','Done']):
-                        print "You have entered a trait that is not found in the trait-containing spreadsheet. Please re-enter, being mindful of spaces and typos."
-                elif (len(split_new_value_remove_spaces)!=2 and split_new_value_remove_spaces[0] not in ['done','Done']):
-                        print "You may have forgotten to enter a trait value along with your trait"
-                elif (len(split_new_value_remove_spaces)==2):
-                        if (split_new_value_remove_spaces[1] not in transposed(data)[the_row] and split_new_value_remove_spaces[1] not in ['done','Done']):
-                                        print "You have entered a trait value that is not found in the trait-containing spreadsheet. Please re-enter, being mindful of spaces and typos."
-                        else:
-                                traits_and_values.append(split_new_value) # changed from traits_and_values.append(split_new_value_remove_spaces)
-                #print "traits_and_values", traits_and_values
-        #remove the 'done' from traits_and_values
-        #I don't think you have to do this anymore
-        #traits_and_values=traits_and_values[0:len(traits_and_values)-1]
-        print"traits_and_values final", traits_and_values
-
-        data_copy=copy.deepcopy(data_as_dict)
-
-        #remove header
-        #print "before header removal", data_copy
-        data_copy=remove_header_dict(data_copy)
-        #print "after header removal", data_copy
-        
-        #print "data_as_dict", data_as_dict
-        #for x in data_as_dict:
-#                print "x all", x
-        for x in data_as_dict:
-                #print "x", x
-                for y in data_as_dict[x]:
-                        #print "y", y
-                        for z in traits_and_values:
-                                #print "z", z
-                                #print "z[0]", z[0]
-                                #print "y[0]", y[0]
-                                #print "y[1]", y[1]
-                                #print "y", y
-                                if z[0]==y[0]:
-                                        #print "this happens" #z[0]==y[1] or or  removed from if statement below
-                                        if z[1]==y[1] or  (' '+z[1])==y[1] or [x] in exceptions: #will the z[0]==y[1] ever cause problems? Using this currently to eliminate the header row that keeps ending up in the output
-                                                #print "I will remove this sample from the dictionary"
-                                                try:
-                                                        #print x, " is getting deleted"
-                                                        del data_copy[x]
-                                                        
-                                                except:
-                                                        #print "Hopefully the script has already deleted ", x
-                                                        pass
-                                                #print x
-                                                #print z
-                                                #print y
-                                                
-                                        
-        #print "data_copy", data_copy
-        try:
-                os.mkdir(pipeline_directory+'Data_subsets/'+list_as_string([list_as_string(x) for x in traits_and_values])+'_removed_subset/')
-        except:
-                pass
-        saveCsv(DictOfLists_toTable_General(data_copy, pipeline_directory), list_as_string([list_as_string(x) for x in traits_and_values])+'_removed_subset.csv', pipeline_directory+'Data_subsets/'+list_as_string([list_as_string(x) for x in traits_and_values])+'_removed_subset/')
-        
-        return [DictOfLists_toTable_General(data_copy, pipeline_directory), pipeline_directory+'Data_subsets/'+list_as_string([list_as_string(x) for x in traits_and_values])+'_removed_subset/']
 
 def remove_header_dict(data):
     data_copy=copy.deepcopy(data)
@@ -1594,93 +2745,6 @@ def remove_header_dict(data):
             del data_copy[x]
     return data_copy
 
-def perform_MAM(data, pipeline_directory, rejected_samples_address):#assumes that exceptions have been removed at this point
-        #print "This portion of the pipeline evaluates minimum adequate models, to determine whether heterozygosity is an important predictor of a target fitness-associated trait.\n"
-        #data_as_dict=Table_to_DictOfLists_General(data)
-        #exceptions=readCsv_input(rejected_samples_address)
-        
-        #print "data_as_dict", data_as_dict
-        try:
-                os.mkdir(pipeline_directory+'Regressions')
-        except:
-                pass
-
-        saveCsv(data,'temp.csv',pipeline_directory+'Regressions/')
-        #print "Make sure the temp.csv file gets completely overwritten each time"
-
-        #print all of the column options
-        print "Your trait column headers are as follows (BE MINDFUL OF SPACES!:\n", data[0]
- 
-
-        #get the relevent link function for the response variable (and predictor variables?)
-        family=raw_input("What sort of error distribution and link function do you expect to use in your models? Your choices are: binomial, gaussian, Gamma, inverse.gaussian, poisson, quasi, quasibinomial, and quasipoisson. Note that gaussian denotes normal linear regression. Please type one of them and press enter")
-        while family not in ['binomial', 'gaussian', 'Gamma', 'inverse.gaussian', 'poisson', 'quasi', 'quasibinomial', 'quasipoisson']:
-                family=raw_input("You typed a link function that is not one of the options. Please type either binomial, gaussian, Gamma, inverse.gaussian, poisson, quasi, quasibinomial, or quasipoisson. Note that gaussian denotes normal linear regression.")
-
-       
-        #get the response variable from the user
-        new_value='not done'
-        print "What trait do you want as your response variable?"
-        new_value=raw_input()
-        while new_value not in data[0]:
-                print "You have entered a trait that is not found in the trait-containing spreadsheet. Please re-enter, being mindful of spaces and typos."
-                new_value=raw_input()
-        response_variable=new_value
-
-        #get the predictor variable(s) from the user
-        predictor_variables=[]
-        print "What trait(s) do you want as predictor variable(s)? Please hit RETURN between each entry. Simply type 'done' when done."
-        new_value='not done'
-        while new_value!='done' and new_value!='Done':
-                #print "new_value", new_value, "type", type(new_value)
-                new_value=raw_input()
-                new_value_split=new_value.split('*')
-                if (not set(new_value_split).issubset(data[0]) and new_value not in ['done','Done']):
-                        print "You have entered a trait that is not found in the trait-containing spreadsheet. Please re-enter, being mindful of spaces and typos."
-                else:
-                        predictor_variables.append(new_value) # changed from traits_and_values.append(split_new_value_remove_spaces)
-                #print "predictor_variables", predictor_variables
-
-        #remove the 'done' from predictor_varaibles
-        predictor_variables=predictor_variables[0:len(predictor_variables)-1]
-        predictor_variables_reduced=[x.split('*') for x in predictor_variables]
-        predictor_variables_reduced=list(recursive_list_of_lists_to_list_of_strings(predictor_variables_reduced))
-        print"predictor_variables", predictor_variables
-        print "predictor_variables_reduced", predictor_variables_reduced
-
-
-        
-        #the bulk of the work (needs to be new PypeR stuff)
-        predictors_as_string=list_as_string(predictor_variables)
-        #from pyper import *
-        r=R(use_numpy=True)
-        r.pipeline_dir=pipeline_directory
-        r.response=response_variable
-        r.predictors=predictor_variables
-        r.predictors_reduced=predictor_variables_reduced
-        r.predictor_filename=predictors_as_string
-        r.fam=family
-        print r("setwd(paste(pipeline_dir,'Regressions/', sep=''))")
-        print r("data<-read.csv(paste(pipeline_dir,'Regressions/temp.csv', sep=''),header=T)")
-        print r("data[data=='-']=NA")
-        print r("data[data=='']=NA")
-        #print r("data[data==NULL]=NA")
-        ####THIS IS WHERE YOU SHOULD MAKE YOUR EXCEPTION SUBSET
-        r.rejected_path=rejected_samples_address
-        print r("rejected<-read.csv(rejected_path, header=F)")
-        #print r("print(rejected)")
-        print r("data<-subset(data, !(ID %in% rejected[,1]))") 
-        #print r("print(data[c(predictors, response)])")
-        print r("print(predictors_reduced)")
-        print r("no.na.data<-na.omit(data[c(predictors_reduced,response)])")
-        #print r("str(data)")
-        print r("model <- glm(formula=as.formula(paste(paste(response,'~', sep=''),paste(predictors,collapse='+'), sep='')),family=fam, no.na.data)")
-        CMDs1=["sink(file=paste(paste(pipeline_dir,'Regressions/', sep=''),paste(paste(paste(paste(fam,response,sep=''), 'on', sep=''), predictor_filename, sep=''),'_full_data_set.txt', sep='')))", "print(summary(model))", "sink()"]
-        CMDs2=["sink(file=paste(paste(pipeline_dir,'Regressions/', sep=''),paste(paste(paste(paste(fam,response,sep=''), 'on', sep=''), predictor_filename, sep=''),'.txt', sep='')))", "step(model)", "sink()"]
-        CMDs3=["tiff(filename=paste(paste(pipeline_dir,'Regressions/', sep=''),paste(paste(paste(paste(fam,response,sep=''), 'on', sep=''), predictor_filename, sep=''),'_full_data_set_assumptions_check.tiff', sep='')))", "layout(matrix(c(1,2,3,4),2,2))", "plot(model)", "dev.off()"]
-        print r(CMDs1)
-        print r(CMDs2)
-        print r(CMDs3)
 
 #def quick_fix_list_of_lists_to_list_of_strings(l):
 #        flat=[]
@@ -1773,32 +2837,7 @@ def DictOfLists_toTable_General_2alleles(dictOfLists, pipeline_directory):
         #saveCsv(data, 'final_output', pipeline_directory)
         return data
 
-def Correlation_heat_map(pipeline_directory, rejected_samples_address): #data is a dataframe R object
-        try:
-                os.mkdir(pipeline_directory+'Correlations')
-        except:
-                pass
-        r=R(use_numpy=True)
-        print r("library(lattice)")
-        r.pipeline_dir=pipeline_directory
-        r.address_of_acceptor_file_r=pipeline_directory+'MLH_output.csv'
-        print r("data_for_cor<-read.csv(address_of_acceptor_file_r)")
-        r.rejected_path=rejected_samples_address
-        print r("rejected<-read.csv(rejected_path, header=F)")
-        print r("data_for_cor<-subset(data_for_cor, !(ID %in% rejected[,1]))") 
 
-        
-        #print r("print(data_for_cor)")
-        print r("just_nums<-sapply(data_for_cor,is.numeric)")
-        #print r("print(just_nums)")
-        print r("just_nums_data<-data_for_cor[,just_nums]")
-        #print r("print(just_nums_data)")
-        print r("cor2<-cor(just_nums_data[,2:length(just_nums_data)], use='pairwise')")
-        #print r("print(cor2)")
-        print r("rgb.palette <- colorRampPalette(c('blue', 'yellow', 'red'), space = 'rgb')")
-        CMDs1=["pdf(file=paste(paste(pipeline_dir,'Correlations/', sep=''), 'Heat_map.pdf',sep=''))", "levelplot(cor2, aspect='iso', scales=list(x=list(rot=90)), main='Correlation Of Fitness-Associated Triats', col.regions=rgb.palette(220), cuts=200, at=seq(-1,1,0.01))"]
-        print r(CMDs1)
-        print r("dev.off()")
 
 def calculate_MLH(data, pipeline_directory):
         data_copy=copy.deepcopy(data)
@@ -1978,37 +3017,6 @@ def hets_and_homos_cleanup(data, population_names, pipeline_directory): #right n
         sample_info==remove_spaces_from_header(sample_info)
         saveCsv(sample_info, 'heterozygotes_and_homozygotes.csv', pipeline_directory)
 
-def Incorporate_MLH_into_everythingFile(pipeline_directory):
-        donor=readCsv_input(pipeline_directory+'MLH_calculated.csv')
-        #print "donor",donor, "done now"
-        acceptor=readCsv_input(pipeline_directory+'MLH_output.csv')
-        #print "acceptor", acceptor
-
-        acceptorTrans=transposed(acceptor)
-        #print "acceptorTrans", acceptorTrans
-
-        #print donor
-        tally=0
-        for i in range (1,len(donor)):
-            if donor[i][0] in acceptorTrans[0]:
-                tally+=1
-                acceptor[acceptorTrans[0].index(donor[i][0])].append(donor[i][1])#.replace(" ",'')
-                #acceptor[acceptorTrans[0].index(donor[i][0])].append(donor[i][2])
-                #acceptor[acceptorTrans[0].index(donor[i][0])].append(donor[i][3])
-        #print acceptor
-        #print "tally", tally
-
-        #add IR, SH, HL columns
-        acceptor[0].append('MLH')
-        #acceptor[0].append('SH')
-        #acceptor[0].append('HL')
-        #print "acceptor before", acceptor
-        acceptor=fill_blanks_of_data_table(acceptor)
-        acceptor=make_sure_NA_are_numeric_compliant(acceptor)
-        acceptor=remove_spaces_from_header(acceptor)
-        saveCsv(acceptor,"MLH_output.csv", pipeline_directory)
-
-        print "Now just plain MLH values have also been incorporated into the fitness data file (called MLH_output.csv)"
 
 def make_sure_NA_are_numeric_compliant(data_original):
         data=copy.deepcopy(data_original)
@@ -2053,33 +3061,6 @@ def remove_spaces_from_all_entries(list_of_lists):
         #print copy_list
         return col_list
 
-def combine_het_homo_and_fitness_scores(address_of_het_homo, address_of_fitness, pipeline_directory):
- #       het_homo=readCsv_input(address_of_het_homo)
-#        fitness=readCsv_input(address_of_fitness)
-        incorporate_donor_into_acceptor(address_of_het_homo, address_of_fitness,pipeline_directory+'genotype_fitness_combined_for_slh_test.txt')
-
-        #retrieve that text file
-        lines=open(pipeline_directory+'genotype_fitness_combined_for_slh_test.txt').readlines()
-        #print lines[0]
-        new_lines=[]
-
-        #make it into a csv file
-        for line in copy.deepcopy(lines):
-                #print "line before", line
-                line=line.replace("'","")
-                #print "line after", line
-                line=line.replace("[","")
-                line=line.replace("]","")
-                line=line.replace("\n","")
-                #print line
-                new_lines.append(line)
-                
-        #print "before split", new_lines
-        new_lines=[x.split(',') for x in new_lines]
-        #print "after split", new_lines
-        new_lines=remove_spaces_from_header(new_lines)
-        all_spaces_removed=remove_spaces_from_all_entries(new_lines)
-        saveCsv(all_spaces_removed, 'genotype_fitness_combine_for_slh_test_as_spreadsheet.csv',pipeline_directory)
 
 def replace_internal_space(test_string):
     try:
@@ -2088,161 +3069,7 @@ def replace_internal_space(test_string):
     except:
         return test_string
 
-def run_model_comparison(csv_address, keeplist_address, pipeline_directory):
-        #exceptions=readCsv_input(rejected_samples_address)
-        try:
-                os.mkdir(pipeline_directory+'Single_Locus_Effects_Test')
-        except:
-                pass
-
-        r=R(use_numpy=True)
-
-        print r("library(pgirmess)")
-        print r("library(MASS)")
-        
-        #convert NAs in locus-containing columns into averages
-
-        keeplist=readCsv_input(keeplist_address)
-        #print "keeplist", keeplist
-        keeplist_as_list_of_strings=[x[0].replace(' ','_') for x in keeplist]
-        #print "keeplist_as_list_of_strings", keeplist_as_list_of_strings
-        keeplist_as_list_of_strings=[x.replace('-','_') for x in keeplist_as_list_of_strings]
-        #re.sub(r'(\w)-(\w)', lambda m: '_' (m.groups()), x)
-        #print "keeplist_as_list_of_strings", keeplist_as_list_of_strings
-
-        master_file=readCsv_input(csv_address)
-        master_file=remove_spaces_from_all_entries(master_file)
-        #master_file=remove_spaces_from_header(master_file)
-        #print "master_file", master_file
-#        temp_header_1=master_file[0]
-#        master_file=[x for x in master_file[1:] if x[0] not in exceptions]
-#        master_file.insert(0,temp_header_1)
-        #print "master_file", master_file
-        master_trans=transposed(copy.deepcopy(master_file))
-        #print "master_trans", master_trans
-        #print "locus names:\n"
-        for x in master_trans:
-                #print "x[0] before", x[0]
-                x[0]=replace_internal_space(x[0])
-                #print "x[0] after internal space replace", x[0]
-                x[0]=x[0].replace('-','_')
-                x[0]=x[0].replace(" ", "")
-                #print "x[0] after both", x[0]
-        #print "master_trans", master_trans
-        just_loci=[x for x in master_trans if x[0].replace(' ','') in keeplist_as_list_of_strings]
-        just_fitness=[x for x in master_trans if x[0].replace(' ','') not in keeplist_as_list_of_strings]
-        just_fitness_names=[x[0] for x in just_fitness]
-        #print "just_fitness", just_fitness
-        #print "just_loci", just_loci
-        #print "just_fitness_names", just_fitness_names
-        #print "just_fitness_names", just_fitness_names
-        NAs_filled=[score_NAs(row) for row in just_loci]
-        #print "NAs_filled", NAs_filled
-        #NAs_filled_flipped_back=transposed(NAs_filled)
-        #print NAs_filled_flipped_back
-        #saveCsv(NAs_filled_flipped_back, 'hets_and_homos_with_NAs_filled_as_means.csv', pipeline_directory)
-
-        #now replace the unfilled columns of master_file_trans with the corresponding filled ones of NAs_filled
-        for i, row in enumerate(NAs_filled):
-                for index, x in enumerate(master_trans):
-                        ####print "row[0]", row[0], "x[0]", x[0]
-                        if x[0]==row[0]:
-                                master_trans[index]=NAs_filled[i]
-        ready_for_comparison=transposed(master_trans)
-        #print "ready_for_comparison", ready_for_comparison
-        saveCsv(ready_for_comparison, 'fitness_and_loci_combined.csv',pipeline_directory+'Single_Locus_Effects_Test/')
-
-        
-        #the R function:
-        funct="""
-        comparemodels <- function(data, response, terms1, terms2, family = 'gaussian', ...) {
-        if (family=='gaussian'){
-                test='F'
-        } else{
-                test='Chisq'
-                #I'm actually not sure what sort of test (LRT, Rao, etc.) is appropriate in each case.This if/else chain can easily be expanded, though
-        }
-	sink(file=paste(paste("Multiple_regression_vs_single_regression_",response, sep=''), ".txt", sep=''))
-        f1 <- reformulate(terms1, response)
-        f2 <- reformulate(terms2, response)
-        m1 <- glm(f1, data = data, family = family)
-        m2 <- glm(f2, data = data, family = family)
-        compare <- anova(m1, m2, test = test)
-        print(compare)
-	sink()
-	tiff(filename=paste(paste("Multiple_regression_",response, sep=''), ".tiff", sep=''))
-	layout(matrix(c(1,2,3,4),2,2))
-	plot(m1)
-	dev.off()
-	tiff(filename=paste(paste("Single_regression_",response, sep=''), ".tiff", sep=''))
-	layout(matrix(c(1,2,3,4),2,2))
-	plot(m2)
-	dev.off()	
-        }
-        """
-
-
-#	print (mod_test$Deviance[2])
-#	print (mod_test$Df[2])
-#	print (pchisq(abs(mod_test$Deviance[2]),abs(mod_test$Df[2])))
-
-
-        print (r(funct))
-
-        #implementing all of these preparations
-        print "You're about to run a test that determines whether a there is evidence for a single locus effect on a particular fitness-associated trait.print. The traits:", just_fitness_names
-
- 
-
-        #get a list of all of the fitness traits from the user that they want to do the slh significance test on
-        print "Please enter the name of each trait you'd like to run this test on. Hit return between each entry. Type 'done' when you're done. (BE MINDFUL OF SPACES!)"
-        trait_list=[]
-        new_value='not done'
-        while new_value!='done' and new_value!='Done':
-                #print "new_value", new_value, "type", type(new_value)
-                new_value=raw_input()
-                #new_value_split=new_value.split('*')
-                #print "new_value_split", new_value_split
-                if (new_value not in just_fitness_names and new_value not in ['done','Done']):
-                        print "You have entered a trait that is not found in the trait-containing spreadsheet. Please re-enter, being mindful of spaces and typos."
-                else:
-                        trait_list.append(new_value) # changed from traits_and_values.append(split_new_value_remove_spaces)
-        trait_list=trait_list[0:len(trait_list)-1]
-        print "trait_list", trait_list
-
-        #get the MLH index
-        print "Please enter the multilocus heterozygosity estimator you'd like to use (MLH is recommended), being mindful of spaces."
-        new_value='not done'
-        new_value=raw_input()
-        while new_value not in just_fitness_names:
-                print "You have entered a trait that is not found in the trait-containing spreadsheet. Please re-enter, being mindful of spaces and typos."
-                new_value=raw_input()
-        print "MLH index is", new_value
-        r.mlh_value=new_value
-
-        r.pipeline_dir=pipeline_directory
-        print r("setwd(paste(pipeline_dir,'Single_Locus_Effects_Test/', sep=''))")
-        print r("data<-read.csv(paste(pipeline_dir,'Single_Locus_Effects_Test/fitness_and_loci_combined.csv', sep=''),header=T)")
-        r.the_loci=keeplist_as_list_of_strings
-        #print r("print(data)")
-        for trait in trait_list:
-                #print "made it here"
-                #print "trait", trait
-                #print type(trait)
-                r.current_trait=trait
-
-                #get the relevent link function for the response variable (and predictor variables?)
-                print "The trait currently being tested is: ",trait
-                family=raw_input("What sort of error distribution and link function do you expect to use in your models? Your choices are: binomial, gaussian, Gamma, inverse.gaussian, poisson, quasi, quasibinomial, and quasipoisson. Note that gaussian denotes normal linear regression. Please type one of them and press enter")
-                while family not in ['binomial', 'gaussian', 'Gamma', 'inverse.gaussian', 'poisson', 'quasi', 'quasibinomial', 'quasipoisson']:
-                        family=raw_input("You typed a link function that is not one of the options. Please type either binomial, gaussian, Gamma, inverse.gaussian, poisson, quasi, quasibinomial, or quasipoisson. Note that gaussian denotes normal linear regression.")
-                r.fam=family
-                #print r("print(the_loci)")
-                #print r("print(data)")
-                #print r("print(current_trait)")
-                #print r("print(data[current_trait])")
-                print (r('comparemodels(data[!is.na(data[current_trait]),],current_trait, the_loci, mlh_value, fam)'))
-                                              
+                                             
 
 def score_NAs(the_list): #where the_list is a list such that the first element is a locus name and the other elements are the heterozygosity status of each sample at that locus. This module fills the NAs with the average heterozygosity of those scored
         list_copy=copy.deepcopy(the_list)
@@ -2282,202 +3109,7 @@ def score_NAs(the_list): #where the_list is a list such that the first element i
         
         return converted
 
-def all_correlations_and_pvalues(MLH_output_csv, save_directory, rejected_samples_address):
-        r=R(use_numpy=True)
-        r.fitness_directory=MLH_output_csv
-        r.save=save_directory
-        f1="""
-        cor.prob<-function (X, dfr=nrow(X)-2){
-	R<-cor(X, use="pairwise")
-	above<-row(R) < col(R)
-	r2<-R[above]^2
-	Fstat<-r2*dfr/(1-r2)
-	R[above]<-1-pf(Fstat,1,dfr)
-	R[row(R)==col(R)]<-NA
-	R
-        }
-        """
-        f2="""
-        cor.prob.spearman<-function (X, dfr=nrow(X)-2){
-	R<-cor(X, method='spearman', use="pairwise")
-	above<-row(R) < col(R)
-	r2<-R[above]^2
-	Fstat<-r2*dfr/(1-r2)
-	R[above]<-1-pf(Fstat,1,dfr)
-	R[row(R)==col(R)]<-NA
-	R
-        }
-        """
-        f3="""
-        flattenSquareMatrix<-function(m){
-	if((class(m) !='matrix')|(nrow(m) != ncol(m))) stop("Must be a square matrix.")
-	if(!identical(rownames(m), colnames(m))) stop("Row and column names must be equal.")
-	ut<-upper.tri(m)
-	data.frame(i=rownames(m)[row(m)[ut]],
-	j=rownames(m)[col(m)[ut]],
-	cor=t(m)[ut],
-	p=m[ut])
-        }
-        """
-        f4="""
-        cor.test.p <- function(x){
-            FUN <- function(x, y) cor.test(x, y)[[3]]
-            z <- outer(
-              colnames(x), 
-              colnames(x), 
-              Vectorize(function(i,j) FUN(x[,i], x[,j]))
-            )
-            dimnames(z) <- list(colnames(x), colnames(x))
-            z
-        }
-        """
-        f5="""
-        cor.test.p.s <- function(x){
-            FUN <- function(x, y) cor.test(x, y, method='spearman')[[3]]
-            z <- outer(
-              colnames(x), 
-              colnames(x), 
-              Vectorize(function(i,j) FUN(x[,i], x[,j]))
-            )
-            dimnames(z) <- list(colnames(x), colnames(x))
-            z
-        }
-        """
- 
-        print(r(f1))
-        print(r(f2))
-        print(r(f3))
-        print(r(f4))
-        print r(f5)
-        print r("data_for_cor<-read.csv(fitness_directory, header=T)")#this could be a problem line
-        r.rejected_path=rejected_samples_address
-        print r("rejected<-read.csv(rejected_path, header=F)")
-        print r("data_for_cor<-subset(data_for_cor, !(ID %in% rejected[,1]))") 
-        print r("just_nums<-sapply(data_for_cor,is.numeric)")
-        print r("just_nums_data<-data_for_cor[,just_nums]")
-        #print r("print ('just_nums_data')")
-        #print r("print (just_nums_data)")
-        #print r("print (str(just_nums_data))")
-        print r("z<-cor.test.p(just_nums_data)")
-        print r("w<-cor.prob(just_nums_data)")
-        #print r("print(w)")
-        print r("x<-z")
-        print r("x[lower.tri(x)]<-w[lower.tri(w)]")
-        
-        print r("x<-flattenSquareMatrix(x)")
-        #print r("print(x)")
-        print r("x=data.frame(x,'pearson_adjusted_p'=p.adjust(x$p, 'BH'))")
-        print r("names(x)[3]<-'pearson_cor'")
-        print r("names(x)[4]<-'pearson_p'")
-
-
-        print r("a<-cor.test.p.s(just_nums_data)")
-        print r("b<-cor.prob.spearman(just_nums_data)")
-        print r("c<-a")
-        print r("c[lower.tri(c)]<-b[lower.tri(b)]")
-        print r("y<-flattenSquareMatrix(c)")
-        #print r("print(y)")
-        
-        #print r("y<-flattenSquareMatrix(cor.test.p.s(just_nums_data))")
-        print r("y=data.frame(y,'spearman_adjusted_p'=p.adjust(y$p, 'BH'))")
-        print r("names(y)[3]<-'spearman_cor'")
-        print r("names(y)[4]<-'spearman_p'")
-        print r("z<-x[,1:2]")
-        print r("z$pearson_corr<-x[,3]")
-        print r("z$spearman_corr<-y[,3]")
-        print r("z$pearson_p<-x[,4]")
-        print r("z$pearson_p_adjusted<-x[,5]")
-        print r("z$spearman_p<-y[,4]")
-        print r("z$spearman_p_adjusted<-y[,5]")
-        print r("write.csv(z,file=paste(save,'all_correlations.csv',sep=''))") #this could be a problem line
                 
-def fdr_cutoffs(pipeline_directory):
-        r=R(use_numpy=True)
-        funct="""
-        fdr<-function(alpha,p.vector){
-        k<-length(p.vector)
-        pval.sort<-sort(p.vector)
-        rank<-1:k
-        fdr.rank<-alpha*rank/k
-        pval.test<-(pval.sort<fdr.rank)
-        cutoff<-max(pval.sort[pval.test])
-        print (cutoff)
-        return(cutoff)
-        }
-        """
-        print (r(funct))
-        cmds=["data<-read.csv('/Users/mf/Desktop/pipeline/Correlations/all_correlations.csv')", "sink(file='/Users/mf/Desktop/pipeline/Correlations/fdr_cutoffs.txt')","print('fdr(0.05,na.omit(data$pearson_p)):')", "fdr(0.05,na.omit(data$pearson_p))", "print('fdr(0.05,na.omit(data$spearman_p)):')", "fdr(0.05,na.omit(data$spearman_p))", "sink()"]
-        print (r(cmds))
-
-def generate_allele_frequency_spreadsheet(genePop_file_address, pipeline_directory):
-    linelist=open(genePop_file_address).readlines()
-    #print type(linelist)
-    #print linelist
-    #print "module 1 entered"
-    good_data=[]
-    locus_names=[]
-    parsing = False
-    new=[]
-    regex_query=re.compile('Locus:\s(.*)')
-
-    ##get a list of locus names##
-    for line in linelist:
-            if "Locus" in line:
-                    #print "this line",line
-                    locus_names.append(re.search(regex_query,line).group(1))
-    #print "after regex", locus_names
-##    for line in locus_names:
-##            new.append(line.replace('Locus:',''))
-##    locus_names=remove_spaces_from_list_recursive(new)
-    #print locus_names
-    
-    ##isolate the lines between Fis and Tot and store them in good_data##
-    for line in linelist:
-            if line.startswith("                                           Fis"):
-                parsing = True
-            elif line.startswith("    Tot"):
-                parsing = False
-            if parsing:
-                good_data.append(line.replace('\n','')) 
-    #print "good_data", good_data
-
-    ##split the data by spacing##
-    for i, entry in enumerate(good_data):
-            good_data[i]=entry.split()
-    #print good_data
-
-    header=['Allele', 'Sample', 'count', 'Frequency', 'W&C', 'R&H']
-    loc_count=0
-    for i,entry in enumerate(good_data):
-            if entry==header: 
-                    good_data[i]=[locus_names[loc_count]]
-                    loc_count+=1
-    #print good_data
-
-    ##remove Fis and ['----------------'] lines##
-    header2=['Allele_Name', 'Sample_count', 'Allele_Frequency', 'Fis_WC']
-    Fis_removed=[header2]
-    for entry in good_data:
-            if entry not in [['----------------'],['Fis']]:
-                    Fis_removed.append(entry)
-
-    ##insert relevant locus name in front of every row##                   
-    locus_tracker='Locus_name'                   
-    for x in range (0, len(Fis_removed)):
-            if Fis_removed[x][0] in locus_names:
-                    locus_tracker=Fis_removed[x][0]
-            Fis_removed[x].insert(0,locus_tracker)
-            
-    #print Fis_removed
-
-    ##remove the rows with two entries in lcous_names##
-    Locus_dups_removed=[]
-    for entry in Fis_removed:
-            if not contains_dupes(entry):
-                    Locus_dups_removed.append(entry)
-    #print "gets to the end of the generate allele_spreadsheet module", Locus_dups_removed                   
-    saveCsv(Locus_dups_removed,'allele_freqs.csv',pipeline_directory)
-
 def contains_dupes(a_list):
         unique_list=[]
         for item in a_list:
@@ -2492,142 +3124,6 @@ def uniques(seq):
        if e not in checked:
            checked.append(e)
    return checked
-
-def effective_allele_number(allele_freqs_file_address, pipeline_directory):
-   #print "script gets to beginning of this module"
-   original=readCsv_input(allele_freqs_file_address)
-   #print data
-
-   data=copy.deepcopy(original)
-   del data[0]
-   #print data
-
-   locus_list=[x[0] for x in data]
-   locus_list=uniques(locus_list)
-   #print locus_list
-
-   effective_alleles=[['Locus','Effect_number_alleles', 'Actual_number_alleles']]
-   actual_number_allles=[["Actual_number_alleles"]]
-   for locus in locus_list:
-       sum_p=0
-       allele_count=0
-       for row in data:
-           #print "row[0]", row[0], "locus", locus
-           if row[0]==locus:
-               #print "row[0]", row[0], "locus", locus
-               sum_p+=(float(row[3])*float(row[3]))
-               allele_count+=1
-       #print "sum_p", sum_p
-       #print "allele_count", allele_count
-       effective_alleles.append([locus, float(1.0/sum_p), allele_count])
-       #actual_number_alleles.append(allele_count)
-
-   #data_trans=HefPipe_modules.transposed(original)
-   #data_trans.append(effective_alleles)
-   #back=HefPipe_modules.transposed(data_trans)
-   #print "script gets here", effective_alleles
-   saveCsv(effective_alleles, 'Effective_alleles_per_locus.csv', pipeline_directory)                               
-
-def generate_obs_exp_het_homo_spreadsheet(genePop_file_address, pipeline_directory):
-    linelist=open(genePop_file_address).readlines()
-    #print type(linelist)
-    #print linelist
-    #print "module 1 entered"
-    good_data=[]
-    locus_names=[]
-    parsing = False
-    new=[]
-    regex_query=re.compile('Locus:\s\w+-*\w*')
-
-    ##get a list of locus names##
-    for line in linelist:
-            if "Locus" in line:
-                    #print "this line",line
-                    locus_names.append(re.search(regex_query,line).group())
-    #print "after regex", locus_names
-    #for line in locus_names:
-#            line.split('Locus:')
-#    for line in locus_names:
- #           new.append(line.replace('\n',''))
-#    locus_names=[]
-#    for line in new:
-#            locus_names.append(line.replace('Pop: 652',''))
-#    new=[]
-    for line in locus_names:
-            new.append(line.replace('Locus:',''))
-    locus_names=remove_spaces_from_list_recursive(new)
-
-    locus_names=uniques(locus_names)
-    
-    ##isolate the four expected number of lines##
-    for line in linelist:
-            if line.startswith("    Expected number of homozygotes"):
-                good_data.append(line.replace('\n',''))
-            elif line.startswith("    Observed number of homozygotes"):
-                good_data.append(line.replace('\n',''))
-            elif line.startswith("    Expected number of heterozygotes"):
-                good_data.append(line.replace('\n',''))
-            elif line.startswith("    Observed number of heterozygotes"):
-                good_data.append(line.replace('\n',''))
-    #print "good_data obs het homo", good_data
-
-    ##split the data by the colon##
-    for i, entry in enumerate(good_data):
-            good_data[i]=entry.split(':')
-    #print "here we are",good_data
-
-    ##remove spaces from good_data##
-    good_data=remove_spaces_from_list_recursive(good_data)
-    #print "good_data",good_data
-
-    ##go through the good_data, four elements at a time, calculate H exp and Hobs, remove the four elements, and repeat for each entry in locus list##
-    good_data_copy=copy.deepcopy(good_data)
-    #print "perhaps locus_names has changed?", locus_names
-
-    ##make each item in locus_names a list##
-    locus_names=[[x]for x in locus_names]
-    
-    for locus in locus_names:
-            #print "locus", locus
-            #print "float(good_data_copy[3][1])", float(good_data_copy[3][1])
-            #print "float(good_data_copy[1][1])", float(good_data_copy[1][1])
-            H_obs=float(good_data_copy[3][1])/(float(good_data_copy[1][1])+float(good_data_copy[3][1]))
-            #print "H_obs", H_obs
-            locus.append(H_obs)
-            #print "float(good_data_copy[2][1])", float(good_data_copy[2][1])
-            #print "float(good_data_copy[0][1])", float(good_data_copy[0][1])
-            H_exp=float(good_data_copy[2][1])/(float(good_data_copy[2][1])+float(good_data_copy[0][1]))
-            #print "H_exp",H_exp
-            locus.append(H_exp)
-            del good_data_copy[0]
-            del good_data_copy[0]
-            del good_data_copy[0]
-            del good_data_copy[0]
-            #print len(good_data_copy)
-    #print "new locus_names", locus_names
-    locus_names.insert(0,['Locus','H_obs','H_exp'])
-    #print "locus_names", locus_names
-    saveCsv(locus_names,'H_obs_and_H_exp.csv',pipeline_directory)
-
-def process_all_full_data_set_files_in_directory(directory_address):
-        #print "directory_address at entry of process_all_full_data_set_files_in_directory", directory_address
-        dir_list=os.listdir(directory_address)
-        #print "before", dir_list
-        for i, f in enumerate(dir_list):
-                #print f
-                os.rename(directory_address+f,directory_address+f.replace(" ",""))
-        dir_list=os.listdir(directory_address)
-        #print type(dir_list)
-        #print len(dir_list)
-        full_data_sets=[x for x in dir_list if "full_data_set.txt" in x]
-        #print "full_data_setss",full_data_sets
-        try:
-                os.mkdir(directory_address+'processed_model_output/')
-        except:
-                pass
-
-        for filename in full_data_sets:
-                saveCsv(process_single_full_data_set_file(directory_address+filename), title_from_address(directory_address+filename)+'_processed.csv' ,directory_address+'processed_model_output/')
 
 def process_single_full_data_set_file(file_address):
         #print "file_address", file_address
@@ -2701,23 +3197,6 @@ def title_from_address(string_of_address):
         search1=re.search(query,string_of_address)
         return search1.group(1)
 
-def generate_gephast_files(fitness_file_address, genotype_file_address, directory_address, rejected_samples_address):
-        
-        try:
-                os.mkdir(directory_address+'GEPHAST_ready/')
-        except:
-                pass
-        exceptions=readCsv_input(rejected_samples_address)
-
-        ##for every column but the first (IDs) in the fitness data file
-        fitness_data=readCsv_input(fitness_file_address)
-        fitness_transposed=transposed(fitness_data)
-        #del fitness_transposed[0] ##don't do that just yet
-        #print "fitness_transposed", fitness_transposed
-        for column in fitness_transposed:
-                #print "column", column
-                make_gephast_file([[fitness_transposed[0][x],column[x]] for x in range(0,len(fitness_transposed[0]))],genotype_file_address, directory_address+'GEPHAST_ready/', exceptions)
-
 
 def make_gephast_file(list_of_trait_values, genotype_file_address, directory_address, exceptions_table): ##assumes one population at the moment
         #print"list_of_trait_values", list_of_trait_values
@@ -2768,92 +3247,6 @@ def is_row_of_blanks(row):
             return False
     return True
 
-def gephast_process_p_vals(directory, pipeline_directory):
-        file_names=[x for x in os.listdir(directory) if '.csv' in x]
-        #print "file_names", file_names
-
-        new_table=[]
-        for f in file_names:
-                data=readCsv_input(directory+f)
-                #print data
-                new_table.append(uniques(data[0][1:len(data[0])]))
-                for row in data:
-                    if row[0]=='':
-                        if not is_row_of_blanks(row):               
-                            #print "row", row
-                            new_row=[]
-                            new_row=[x for x in row if x!='']
-                            #print "new_row", new_row
-                            new_row.insert(0,'')
-                            #print "new_row", new_row
-                            #new_row.insert(0,'')
-                            new_table.append(new_row)
-        #print "new_table", new_table
-#        saveCsv(new_table,'gephast_pvals.csv',pipeline_directory)
-
-        ##get the header of the master file
-        master_table=[]
-        master_header=[]
-        for row in new_table:
-            if row[0]!='':
-                    master_header.append(row[0])
-        #print "Master_header", master_header                    
-
-        ##for every item besides the first in row in new_table where the first entry is not '', append to it the float version of the element in the next row /100
-        for i, row in enumerate(new_table):
-                if row[0]!='':
-                        for index,entry in enumerate(row):
-                                if index==0:
-                                        master_table.append([entry])
-                                if index!=0:
-                                        master_table.append([entry,float(new_table[i+1][index])/100])
-        #print "master_table", master_table
-
-        ##now, you have a list of lists, such that each trait name is an element (i.e. list of len 1) followed by each locus gephasted for that trait with pvalue (lists of len 2), followed by the next trait name...                
-        ##make it so that each list in new_master is a list of trait name followed by each locus and pvalue (i.e., separate the trait-plus-locus/pvalues into separate lists)
-        new_master=[]
-        count=1
-        for row in master_table:
-                #print "row", row
-                if len(row)==1:
-                        new_master.append([[row[0],'pval'+str(count)]])
-                        count+=1
-                else:
-                        new_master[len(new_master)-1].append(row)
-        #print "new_master", new_master
-
-        #for row 
-        nm_trans=transposed(new_master)
-        #print "nm_trans", nm_trans
-        #saveCsv_v2(nm_trans,'gephast_pre_process_text.csv',pipeline_directory)
-        nm_take_out=[]
-        temp=[]
-        for row in nm_trans:
-                #print "row", row
-                temp=list_of_lists_to_list(row)
-                #print "temp", temp[0]
-                nm_take_out.append(temp)
-                temp=[]
-        #print nm_take_out
-        saveCsv_v2(nm_take_out,'gephast_pvals.csv',pipeline_directory)
-        #print test
-
-        ##and now create p-adjusted columns
-        r=R(use_numpy=True)
-        r.pipel_directory=pipeline_directory
-
-        print r("data<-read.csv(paste(pipel_directory,'gephast_pvals.csv',sep=''), header=T)")
-        print r("sub1<-data[c(F,T)]")
-        print r("sub2<-data[c(T,F)]")
-        longCMD="""
-
-        for (i in 1:ncol(sub1)){
-        	sub1[,i]=p.adjust(sub1[,i],'BH')
-        }
-        """
-        print r(longCMD)
-        print r("data[c(F,T)]<-sub1")
-        print r("write.csv(data,file=paste(pipel_directory,'gephast_p_adjusted.csv',sep=''))")
 
 def is_list_of_strings(the_list):
         for item in the_list:
@@ -2880,343 +3273,6 @@ def list_of_lists_to_list(list_of_lists):
                 final.append(list_of_lists)
         #print "after", final
         return final
-
-def spearman_corr_chart(pipeline_directory, address_of_acceptor_file, rejected_samples_address):
-        r=R(use_numpy=True)
-        r.pipeline_dir=pipeline_directory
-        r.acceptr_address=address_of_acceptor_file
-        print r("library('PerformanceAnalytics')")
-        #print r("tmpstr <- deparse(chart.Correlation)")
-        cmd1="""
-	my.spearman.chart.correlation<-function (R, histogram = TRUE, ...){
-		x = checkData(R, method = "matrix")                                                   
-		panel.cor <- function(x, y, digits = 2, prefix = "", use = "pairwise.complete.obs", 	cex.cor.scale=1, cex.cor, ...) {
-			usr <- par("usr")                                                                 
-	    	on.exit(par(usr))                                                                   
-	    	par(usr = c(0, 1, 0, 1))                                                            
-	    	r <- (cor(x, y,method='spearman', use = use))                                                      
-		    txt <- format(c(r, 0.123456789), digits = digits)[1]                                
-		    txt <- paste(prefix, txt, sep = "")                                              
-		    if (missing(cex.cor)){
-		    	cex <- 0.8/strwidth(txt)
-		    }                                                                                                                                  
-		        test <- cor.test(x, y, method='spearman')                                                             
-		        Signif <- symnum(test$p.value, corr = FALSE, na = FALSE, cutpoints = c(0, 0.001, 0.01, 0.05, 0.1, 1), symbols = c("***", "**", "*", ".", " "))                                               
-		        text(0.5, 0.5, txt, cex = cex * r^cex.cor.scale)                                                  
-		        text(0.8, 0.8, Signif, cex = cex, col = 2)                                           
-		}                                                                                       
-		f <- function(t) {
-			dnorm(t, mean = mean(x), sd = sd.xts(x))                                            
-		}                                                                                       
-		hist.panel = function(x, ...) {
-			par(new = TRUE)                                                                     
-		    hist(x, col = "light gray", probability = TRUE, axes = FALSE, main = "", breaks = "FD")                                                   
-		    lines(density(x, na.rm = TRUE), col = "red", lwd = 1)                             
-		    rug(x)                                                                              
-		}                                                                                       
-		if (histogram){
-			pairs(x, gap = 0, lower.panel = panel.smooth, upper.panel = panel.cor, diag.panel = hist.panel, ...)
-		}                                                   
-		    else {
-		    	pairs(x, gap = 0, lower.panel = panel.smooth, upper.panel = panel.cor, ...)
-		    }                                                                                
-	} 
-        
-        """
-        print r(cmd1)
-#        print r("abscor<-grep('^ *r <- abs',tmpstr)")
-        #print r("(print(abscor))")
-        #print r(cmd2)
-#        print r("tmpstr[abscor]<-paste('r<-cor(x,y,method='spearman',use=use)')")
-        #print r("panelcorline <- grep('^ *panel.cor',tmpstr)")
-        #print r("tmpstr[panelcorline] <- paste(tmpstr[panelcorline],'cex.cor.scale=1,')")
-        #print r("rscaleline <- grep('^ *text\\(0.5',tmpstr)")
-        #print r("tmpstr[rscaleline] <- gsub('cex \\* r','cex*r^cex.cor.scale',tmpstr[rscaleline])")
-        #print r("spearman.chart.Correlation <- eval(parse(text=tmpstr))")
-        print r("data_for_cor<-read.csv(paste(acceptr_address), header=T)")
-        r.rejected_path=rejected_samples_address
-        print r("rejected<-read.csv(rejected_path, header=F)")
-        print r("data_for_cor<-subset(data_for_cor, !(ID %in% rejected[,1]))") 
-        print r("data_for_cor<-data_for_cor[,2:ncol(data_for_cor)]")#gets rid of ID column
-        print r("just_nums<-sapply(data_for_cor,is.numeric)")
-        #print r("print(just_nums)")
-        print r("just_nums_data<-data_for_cor[,just_nums]")
-        print r("library(PerformanceAnalytics)")
-        print r("pdf(paste(pipeline_dir,'Correlations/corr_chart_spearman.pdf',sep=''))")
-        print r("my.spearman.chart.correlation(just_nums_data, histogram=TRUE, pch='+', cex.cor.scale=0, cex.labels=0.2)")
-        print r("dev.off()")
-
-
-
-def pearson_corr_chart(pipeline_directory, address_of_acceptor_file, rejected_samples_address):
-        r=R(use_numpy=True)
-        r.pipeline_dir=pipeline_directory
-        r.acceptr_address=address_of_acceptor_file
-        print r("library('PerformanceAnalytics')")
-        cmd1="""
-	my.pearson.chart.correlation<-function (R, histogram = TRUE, ...)
-	{
-		x = checkData(R, method = "matrix")                                                   
-		panel.cor <- function(x, y, digits = 2, prefix = "", use = "pairwise.complete.obs", 	cex.cor.scale=1, cex.cor, ...) {
-			usr <- par("usr")                                                                 
-	    	on.exit(par(usr))                                                                   
-	    	par(usr = c(0, 1, 0, 1))                                                            
-	    	r <- (cor(x, y, use = use))                                                      
-		    txt <- format(c(r, 0.123456789), digits = digits)[1]                                
-		    txt <- paste(prefix, txt, sep = "")                                              
-		    if (missing(cex.cor)){
-		    	cex <- 0.8/strwidth(txt)
-		    }                                                                                                                                  
-		        test <- cor.test(x, y)                                                             
-		        Signif <- symnum(test$p.value, corr = FALSE, na = FALSE, cutpoints = c(0, 0.001, 0.01, 0.05, 0.1, 1), symbols = c("***", "**", "*", ".", " "))                                               
-		        text(0.5, 0.5, txt, cex = cex * r^cex.cor.scale)                                                  
-		        text(0.8, 0.8, Signif, cex = cex, col = 2)                                           
-		}                                                                                       
-		f <- function(t) {
-			dnorm(t, mean = mean(x), sd = sd.xts(x))                                            
-		}                                                                                       
-		hist.panel = function(x, ...) {
-			par(new = TRUE)                                                                     
-		    hist(x, col = "light gray", probability = TRUE, axes = FALSE, main = "", breaks = "FD")                                                   
-		    lines(density(x, na.rm = TRUE), col = "red", lwd = 1)                             
-		    rug(x)                                                                              
-		}                                                                                       
-		if (histogram){
-			pairs(x, gap = 0, lower.panel = panel.smooth, upper.panel = panel.cor, diag.panel = hist.panel, ...)
-		}                                                   
-		    else {
-		    	pairs(x, gap = 0, lower.panel = panel.smooth, upper.panel = panel.cor, ...)
-		    }                                                                                
-	} 
-        
-        """
-        print r(cmd1)
-        print r("data_for_cor<-read.csv(paste(acceptr_address), header=T)")
-        r.rejected_path=rejected_samples_address
-        print r("rejected<-read.csv(rejected_path, header=F)")
-        print r("data_for_cor<-subset(data_for_cor, !(ID %in% rejected[,1]))") 
-        print r("data_for_cor<-data_for_cor[,2:ncol(data_for_cor)]")#gets rid of ID column
-        print r("just_nums<-sapply(data_for_cor,is.numeric)")
-        #print r("names(just_nums)")
-        print r("just_nums_data<-data_for_cor[,just_nums]")
-        print r("library(PerformanceAnalytics)")
-        print r("pdf(paste(pipeline_dir,'Correlations/corr_chart_pearson.pdf',sep=''))")
-        print r("my.pearson.chart.correlation(just_nums_data, histogram=TRUE, pch='+', cex.cor.scale=0, cex.labels=0.2)")
-        print r("dev.off()")
-
-
-def homemade_correlation_matrix_pearson_adjusted(pipeline_directory):
-        print "pearson adjusted entered"
-        data=readCsv_input(pipeline_directory+'Correlations/all_correlations.csv')
-        trans=transposed(data)
-        culled=[x for x in trans if x[0] in ['i', 'j', 'pearson_p_adjusted', 'pearson_corr']]
-        traits=uniques([x for x in culled[0] if x not in ['i', 'ID']])
-        #doesn't capture the one trait that's only in the j column, in our case usually 'MLH'
-        more_traits=uniques([x for x in culled[1] if x not in ['j','ID']])
-        #print "more traits", more_traits
-        #combine uniques of traits and more_traits
-        for i in more_traits:
-                if i not in traits:
-                        traits.append(i)
-                
-        #print "new traits", traits
-        
-
-        ##create the table
-        a=[[""]*i + [x]+[""]*(len(traits)-i-1) for i,x in enumerate(traits)]
-        
-        ##put the correlation coefficient in the upper diagonal and the significance in the lower diagonal
-        cols=copy.deepcopy(culled)
-        rows=copy.deepcopy(transposed(cols))
-        row_dest=-1
-        col_dest=-1
-        for row in rows[1:]:
-                for i,r in enumerate(a):
-                        #print "row[0]", row[0]
-                        #print "row[1]", row[1]
-                        #print "r", r
-                        if row[0] in r:
-                                #print "this happens 1"
-                                row_dest=i
-                                #print "row_dest"
-                        if row[1] in r:
-                                #print "this happens 2"
-                                col_dest=i
-                        if row_dest>=0 and col_dest >=0:
-                                #print "this happens 3"
-                                a[row_dest][col_dest]=row[2]
-                                a[col_dest][row_dest]=row[3]
-                row_dest=-1
-                col_dest=-1
-        #print "a after", a
-        saveCsv(a, 'correlation_chart_pearson_adjusted.csv', pipeline_directory+'Correlations/')                                                
-
-
-def homemade_correlation_matrix_spearman_adjusted(pipeline_directory):
-        print "spearman adjusted entered"
-        data=readCsv_input(pipeline_directory+'Correlations/all_correlations.csv')
-        trans=transposed(data)
-        culled=[x for x in trans if x[0] in ['i', 'j', 'spearman_p_adjusted', 'spearman_corr']]
-        traits=uniques([x for x in culled[0] if x not in ['i', 'ID']])
-        #doesn't capture the one trait that's only in the j column, in our case usually 'MLH'
-        more_traits=uniques([x for x in culled[1] if x not in ['j','ID']])
-        #print "more traits", more_traits
-        #combine uniques of traits and more_traits
-        for i in more_traits:
-                if i not in traits:
-                        traits.append(i)
-                
-        #print "new traits", traits
-
-
-        ##create the table
-        a=[[""]*i + [x]+[""]*(len(traits)-i-1) for i,x in enumerate(traits)]
-        
-        ##put the correlation coefficient in the upper diagonal and the significance in the lower diagonal
-        cols=copy.deepcopy(culled)
-        rows=copy.deepcopy(transposed(cols))
-        row_dest=-1
-        col_dest=-1
-        for row in rows[1:]:
-                for i,r in enumerate(a):
-                        #print "row[0]", row[0]
-                        #print "row[1]", row[1]
-                        #print "r", r
-                        if row[0] in r:
-                                #print "this happens 1"
-                                row_dest=i
-                                #print "row_dest"
-                        if row[1] in r:
-                                #print "this happens 2"
-                                col_dest=i
-                        if row_dest>=0 and col_dest >=0:
-                                #print "this happens 3"
-                                a[row_dest][col_dest]=row[2]
-                                a[col_dest][row_dest]=row[3]
-                row_dest=-1
-                col_dest=-1
-        #print "a after", a
-        saveCsv(a, 'correlation_chart_spearman_adjusted.csv', pipeline_directory+'Correlations/')
-
-def homemade_correlation_matrix_pearson(pipeline_directory):
-        print "pearson entered"
-        data=readCsv_input(pipeline_directory+'Correlations/all_correlations.csv')
-        trans=transposed(data)
-        culled=[x for x in trans if x[0] in ['i', 'j', 'pearson_p', 'pearson_corr'] and x[0] not in ['pearson_p_adjusted']]
-        traits=uniques([x for x in culled[0] if x not in ['i', 'ID']])
-        #doesn't capture the one trait that's only in the j column, in our case usually 'MLH'
-        more_traits=uniques([x for x in culled[1] if x not in ['j','ID']])
-        #print "more traits", more_traits
-        #combine uniques of traits and more_traits
-        for i in more_traits:
-                if i not in traits:
-                        traits.append(i)
-                
-        #print "new traits", traits
-
-
-        ##create the table
-        a=[[""]*i + [x]+[""]*(len(traits)-i-1) for i,x in enumerate(traits)]
-        
-        ##put the correlation coefficient in the upper diagonal and the significance in the lower diagonal
-        cols=copy.deepcopy(culled)
-        rows=copy.deepcopy(transposed(cols))
-        row_dest=-1
-        col_dest=-1
-        for row in rows[1:]:
-                for i,r in enumerate(a):
-                        #print "row[0]", row[0]
-                        #print "row[1]", row[1]
-                        #print "r", r
-                        if row[0] in r:
-                                #print "this happens 1"
-                                row_dest=i
-                                #print "row_dest"
-                        if row[1] in r:
-                                #print "this happens 2"
-                                col_dest=i
-                        if row_dest>=0 and col_dest >=0:
-                                #print "this happens 3"
-                                a[row_dest][col_dest]=row[2]
-                                a[col_dest][row_dest]=row[3]
-                row_dest=-1
-                col_dest=-1
-        #print "a after", a
-        saveCsv(a, 'correlation_chart_pearson.csv', pipeline_directory+'Correlations/')                                                
-
-
-def homemade_correlation_matrix_spearman(pipeline_directory):
-        print "spearman entered"
-        data=readCsv_input(pipeline_directory+'Correlations/all_correlations.csv')
-        trans=transposed(data)
-        culled=[x for x in trans if x[0] in ['i', 'j', 'spearman_p', 'spearman_corr'] and x[0] not in ['spearman_p_adjusted']]
-        traits=uniques([x for x in culled[0] if x not in ['i', 'ID']])
-        #doesn't capture the one trait that's only in the j column, in our case usually 'MLH'
-        more_traits=uniques([x for x in culled[1] if x not in ['j','ID']])
-        #print "more traits", more_traits
-        #combine uniques of traits and more_traits
-        for i in more_traits:
-                if i not in traits:
-                        traits.append(i)
-                
-        #print "new traits", traits
-
-
-        ##create the table
-        a=[[""]*i + [x]+[""]*(len(traits)-i-1) for i,x in enumerate(traits)]
-        
-        ##put the correlation coefficient in the upper diagonal and the significance in the lower diagonal
-        cols=copy.deepcopy(culled)
-        rows=copy.deepcopy(transposed(cols))
-        row_dest=-1
-        col_dest=-1
-        for row in rows[1:]:
-                for i,r in enumerate(a):
-                        #print "row[0]", row[0]
-                        #print "row[1]", row[1]
-                        #print "r", r
-                        if row[0] in r:
-                                #print "this happens 1"
-                                row_dest=i
-                                #print "row_dest"
-                        if row[1] in r:
-                                #print "this happens 2"
-                                col_dest=i
-                        if row_dest>=0 and col_dest >=0:
-                                #print "this happens 3"
-                                a[row_dest][col_dest]=row[2]
-                                a[col_dest][row_dest]=row[3]
-                row_dest=-1
-                col_dest=-1
-        #print "a after", a
-        saveCsv(a, 'correlation_chart_spearman.csv', pipeline_directory+'Correlations/')
-
-def num_samples_per_locus (pipeline_directory):
-        data=readCsv_input(pipeline_directory+'heterozygotes_and_homozygotes.csv')
-        data2=copy.deepcopy(transposed(data))
-        del data2[0]
-        #print "data2", data2
-        final=[]
-        for row in data2:
-                count=0
-                for x in row[1:len(row)]:
-                        if x in ['1','0']:
-                                count+=1
-                final.append([row[0],count])
-        saveCsv(final, 'number_of_samples_per_locus.csv',pipeline_directory)
-        #print "final", final
-
-def check_that_keeplist_and_monolist_are_mutually_exclusive(keeplist_address, monolist_address):
-        k=readCsv_input(keeplist_address)
-        m=readCsv_input(monolist_address)
-        problem_loci=[]
-        for row in k:
-                if row in m:
-                        problem_loci.append(row[0])
-        if len(problem_loci)>0:
-                        print "The following loci are in keeplist AND in monolist. Please resolve this situation and re-run the pipeline:"
-                        print problem_loci
-                        stophack=raw_input(" ")
 
 def opt1_parse(filename, pipeline_directory, outputname):#outputname must include '.csv'
     opt1=open(filename).readlines()
