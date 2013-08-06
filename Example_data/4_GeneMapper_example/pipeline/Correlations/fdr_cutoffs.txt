@@ -1,0 +1,4 @@
+[1] "fdr(0.05,na.omit(data$pearson_p)):"
+[1] 0.006012887
+[1] "fdr(0.05,na.omit(data$spearman_p)):"
+[1] 0.0008767245

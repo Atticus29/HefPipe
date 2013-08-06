@@ -1,0 +1,10 @@
+Start:  AIC=163.68
+QnWt ~ MLH
+
+       Df Deviance    AIC
+- MLH   1   71.859 161.82
+<none>      71.655 163.68
+
+Step:  AIC=161.82
+QnWt ~ 1
+

@@ -38,8 +38,12 @@ def check_that_keeplist_and_monolist_are_mutually_exclusive(keeplist_address, mo
                         print "The following loci are in keeplist AND in monolist. Please resolve this situation and re-run the pipeline:"
                         print problem_loci
                         stophack=raw_input(" ")
-
+                
+                
 def allele_report_pipeline_directory_version (allele_reports_address, keeplist_address, monolist_address, pipeline_directory, rejected_samples_address):
+    GeneMapper_file_list=get_geneMapper_formatted(allele_reports_address)
+    process_geneMapper_files(GeneMapper_file_list, allele_reports_address, pipeline_directory)
+
     exceptions=readCsv_input(rejected_samples_address)
     #note: you will have to run this more than once. The second time will be after you have dealt with all of the issues related to missing.txt
     alleleList=[x for x in os.listdir(allele_reports_address) if '.csv' in x]
@@ -60,6 +64,10 @@ def allele_report_pipeline_directory_version (allele_reports_address, keeplist_a
         file+=a
         print "file", file
         data=readCsv_input(file)
+
+        ##############################################################################################################
+        ##check whether it's GeneMarker-formatted. If it is, format it separately. Otherwise, all of the stuff below##
+        ##############################################################################################################
         
         #get rid of the top rows with the unimportant information
         #print "data before cleanup", data
@@ -1684,6 +1692,163 @@ def process_all_full_data_set_files_in_directory(directory_address):
 ##Auxiliary and Dependent Modules##
 ###################################
         
+
+
+def get_geneMapper_formatted(allele_report_file_address):
+        allele_report_List=[x for x in os.listdir(allele_report_file_address) if '.txt' in x]
+        if len(allele_report_List)>0:
+                print "There is a text file in the allele reports directory. HeFPipe will assume that this is a Gene-Marker-formatted file."
+                #return True
+        #else:
+                #return False
+        return allele_report_List
+        ##find somethings that are GeneMapper specific and test them
+
+def process_geneMapper_files(GeneMapper_file_list, allele_reports_address, pipeline_directory):
+        for f in GeneMapper_file_list:
+                #print "type f", type(f)
+                temp_title=re.sub('\.txt','',f) #f.translate(None,'.txt.')
+                #print "temp_title", temp_title
+                f=allele_reports_address+f
+                #print "f", f
+
+                ##convert to csv/tabular format##
+                inputFileList= [line.strip().split('\t') for line in open(f)]
+                #print "inputFileList", inputFileList
+
+                ##delete all columns except "Sample Name", "Marker", "Allele 1", and "Allele 2"
+                temptrans=transposed(inputFileList)
+                #print "temptrans", temptrans
+                newtable=[]
+                for row in temptrans:
+                        if row[0] in ['Sample Name', 'Marker', 'Allele 1', 'Allele 2']:
+                                newtable.append(row)
+                newtable=transposed(newtable)
+                #print "newtable", newtable
+                #saveCsv(newtable, 'edited_'+temp_title+'.csv',pipeline_directory)
+
+
+                ##change column name
+                for n,i in enumerate (newtable[0]):
+                        #print "n", n
+                        #print "i", i
+                        if i=='Sample Name':
+                                newtable[0][n]='ID'
+                #print "newtable", newtable
+
+                ##change sample names to remove everything beyond the delimiter
+                newtable_trans=transposed(newtable)
+                #print "newtable_trans[0]",newtable_trans[0]
+                newtable_trans[0]=rename_row(newtable_trans[0])
+                #.insert(0,'ID')
+                #print "newtable_trans[0]",newtable_trans[0]
+                #print "newtable_trans", newtable_trans
+                newtable=transposed(newtable_trans)
+                #print "newtable", newtable
+
+
+                ##re-format table
+                newt_trans=transposed(newtable)
+                for row in newt_trans:
+                        if row[0]=='ID':
+                                unique_IDs=sorted(uniques(row[1:]))
+                                #print "unique_IDs", unique_IDs
+                                #print "len(unique_IDs)", len(unique_IDs)
+                        if row[0]=='Marker':
+                                unique_Markers=uniques(row[1:])
+                                #print "unique_Markers", unique_Markers
+                                #print "len(unique_Markers)", len(unique_Markers)
+                top_row=['Number', 'ID']
+                for x in unique_Markers:
+                        top_row.append(x)
+                        top_row.append('') #yes, intentional
+                final=[top_row]
+                #print "final", final
+                for a in range (1, len(unique_IDs)):
+                        final.append([a,unique_IDs[a]])
+                for r in final[1:]:
+                        for l in range (0,len(final[0])-2):
+                                r.append('')
+                #print "final", final
+                #print "len(final)", len(final)
+                #print "len(final[0])", len(final[0])
+                for i,sample in enumerate(unique_Markers):#used to be unique_IDs
+                        #print "i", i
+                        #print "type(i)", type(i)
+                        #print "sample", sample
+                        #print "placeholder", sample
+                        for row in newtable[1:]:
+                                #print "row", row
+                                if row[1]==sample: #this is the marker we're looking for
+                                        #find the sample this matches in final
+                                        for index,e in enumerate(final):
+                                                #print "index", index
+                                                #print "e", e
+                                                if e[1]==row[0]: #this is the sample we're looking for
+                                                        #print "final[index]",final[index]
+                                                        #print "i", i
+                                                        #print "final[index]", final[index]
+                                                        #print "final[index][2*i+2]", final[index][2*i+2]
+                                                        #print "row[2]", row[2]
+                                                        #print "final[index][2*i+3]", final[index][2*i+3]
+                                                        #print "row[3]", row[3]
+                                                        final[index][2*i+2]=row[2]
+                                                        final[index][2*i+3]=row[3]
+
+                #print "final", final
+                        #search through each row in newtable and assign diploid genotypes to relevant marker
+
+                #do apply excluded loci?
+
+                #print data
+                #assumes data is a list of lists
+                max_len=[]
+                for x in final:
+                        max_len.append(len(x))
+                the_max=max(max_len)
+                #print "the max is", the_max
+                for x in final[1:]:
+                        #print len(x)
+                        if len(x)<the_max:
+                                #print "this happens"
+                                while len(x)<the_max:
+                                        x.append('NA')
+                        for i,y in enumerate(x):
+                                #print "y", y
+                                if y=='' or len(str(y))==0:
+                                        #print "this happens", y
+                                        x[i]='**'
+
+                ###add number column
+                #number_col=['Number']
+                #for x in range (1, len(newtable)):
+#                        number_col.append(str(x))
+#                #print "number_col", number_col
+#                new_trans=transposed(newtable)
+#                new_trans.insert(0, number_col)
+#                newtable=transposed(new_trans)
+                saveCsv(final, temp_title+'_rendered_to_GeneMarker.csv', allele_reports_address)
+#                #print "newtable", newtable
+
+
+                
+
+                ##fill in missing genotypes with '**'
+                for row in newtable:
+                        for e,i in enumerate(row[2:]):
+                                #print "e", e
+                                #print "i", i
+                                if len(i)==0:
+                                        #I don't think this works yet
+                                        row[2:][e]='**'
+                                        #print "row", row
+                #print "newtable", newtable
+
+
+                ##deal with missing second allele, but present first allele
+                
+                ##move the markers and genotypes to conform to geneMarker processed format
+
 def PypeRify(r_as_text_address): #gets a little buggy with pounded comments on the same lines as R code
         warning=raw_input("Just remember that your R code should have no pounded comments before entering this module, or else it won't work")
         linelist=open(r_as_text_address).readlines()
@@ -2148,6 +2313,7 @@ def list_of_lists_to_txt (data, desktop):
         return data
 
 def txt_to_csv(filename):
+        #print "entered txt_to_csv module"
         #print "filename", filename
         #print type(filename)
         inputFile=open(filename).readlines()
@@ -2357,23 +2523,44 @@ def get_unique(all_list): #gets the unique elements of a list and returns them a
                         checked.append(e)
         return checked
 
-def remove_nonscores(data, monolist):
+
+def list_o_lists_to_list(monolist):
+        ##assumes that each sublist is only one element long (NOT recursive)
+        m_l=[]
+        for row in monolist:
+                m_l.append(row[0])
+        return m_l
+
+def remove_nonscores(data,monolist):
+        new_data=[]
+        m_l=list_o_lists_to_list(monolist)
+        #print "monolist", monolist
+        #print "m_l", m_l
+        trans=transposed(copy.deepcopy(data))
+        for row in trans:
+                if row[0] not in m_l:
+                        new_data.append(row)
+        #print "the return", transposed(new_data)
+        return transposed(new_data)
+
+def remove_nonscores_old(data, monolist):
+        print "entered remove_nonscores module"
         trans=transposed(copy.deepcopy(data))
         trans_copy=copy.deepcopy(trans)
         tracker=[]
-        #print "trans", trans
+        print "trans", trans
         for a in monolist:
-                #print "a", a
+                print "a", a
                 for i, row in enumerate(trans):
-                        #print "i at this point", i
+                        print "i at this point", i
                         if a[0] in row:
-                                #print a[0], "is in row", i
+                                print a[0], "is in row", i
                                 tracker.append(i)
-        #print "tracker", tracker
+        print "tracker", tracker
         tracker.sort()
-        #print "sorted", tracker
+        print "sorted", tracker
         while len(tracker)>0:
-                #print "tracker", tracker
+                print "tracker", tracker
                 del trans_copy[tracker[len(tracker)-1]]
                 del tracker[len(tracker)-1]
                                

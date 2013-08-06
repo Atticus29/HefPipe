@@ -1,0 +1,6 @@
+Start:  AIC=-124.57
+QnSize ~ MLH
+
+       Df Deviance     AIC
+<none>     0.13248 -124.58
+- MLH   1  0.13980 -124.21
