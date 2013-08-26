@@ -281,9 +281,12 @@ def generate_allele_frequency_spreadsheet(genePop_file_address, pipeline_directo
     ##insert relevant locus name in front of every row##                   
     locus_tracker='Locus_name'                   
     for x in range (0, len(Fis_removed)):
-            if Fis_removed[x][0] in locus_names:
-                    locus_tracker=Fis_removed[x][0]
-            Fis_removed[x].insert(0,locus_tracker)
+            try:                    
+                    if Fis_removed[x][0] in locus_names:
+                            locus_tracker=Fis_removed[x][0]
+                    Fis_removed[x].insert(0,locus_tracker)
+            except:
+                    stopHack=raw_input("There is no variation in genotype at one of your loci across your samples. Please place is on the loci-to-be-excluded list and re-run the pipeline")
             
     #print Fis_removed
 
